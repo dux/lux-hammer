@@ -13,7 +13,10 @@ project, run `hammer`, get a structured CLI. Also usable as a library
 * **One root constant**: `Hammer`. Never pollute `Object` or introduce
   another top-level constant. Sub-types live as `Hammer::Shell`,
   `Hammer::Option`, `Hammer::Parser`, `Hammer::Command`,
-  `Hammer::Loader`, `Hammer::Builder`, `Hammer::CommandBuilder`.
+  `Hammer::Loader`, `Hammer::Builder`, `Hammer::CommandBuilder`. The one
+  exception is `String#color(:name)` (defined in `lib/hammer/shell.rb`)
+  - a tiny convenience for `"hi".color(:cyan)`. Do not add more
+  monkey-patches.
 * **Zero runtime dependencies**. The gem must work with stdlib only. New
   dependencies require explicit user approval.
 * **Ruby >= 2.7**. Do not use language features introduced after 2.7
@@ -72,10 +75,6 @@ At class scope (for `def`-style commands):
 
 At class or `Hammerfile` scope:
 
-* `program_name 'foo'` / `program 'foo'` - optional. Default is the
-  invocation path relative to cwd if the bin lives inside cwd
-  (e.g. `bin/foo` when invoked from the project root), otherwise the
-  basename of `$PROGRAM_NAME` (e.g. `lux` for a global bin in PATH).
 * `define :name do ... end`
 * `namespace :name do ... end`
 * `load` / `load auto: true` / `load 'path/file.rb'` / `load 'glob/*.rb'` -
@@ -113,6 +112,10 @@ explicit ADR-level discussion. Keys:
 
 ## Help formatting
 
+* Program name in usage lines is computed automatically (invocation path
+  relative to cwd if the bin lives inside cwd, otherwise the basename of
+  `$PROGRAM_NAME`). `program 'foo'` / `program_name 'foo'` overrides it;
+  not normally needed.
 * `hammer` (no args), `hammer -h`, and `hammer --help` all print top-level help.
 * `hammer COMMAND -h` / `--help` prints per-command help (reserved on every command).
 * Commands listed flat with colon paths, grouped by top-level namespace.
@@ -121,6 +124,68 @@ explicit ADR-level discussion. Keys:
 * Per-command help: usage line shows declared opts inline (required
   bare, optional bracketed), then options with `(default: ...)` /
   `(required)` annotations, then examples.
+
+## Inline helpers (`Hammer::Shell`)
+
+Mixed into every handler. Also callable directly as `Hammer::Shell.<x>`.
+Complete surface:
+
+```ruby
+say 'plain'                          # print
+say.green 'ok'                       # colored via proxy (preferred form)
+say 'ok', :green                     # equivalent two-arg form
+say ''                               # blank line (NOT `say` with no args)
+
+'OK'.color(:green)                   # paint without printing
+Hammer::Shell.paint('x', :red)       # the underlying primitive
+
+error 'config missing' unless ok     # raise Hammer::Error -> dispatcher exits 1
+name = ask 'name'                    # read line
+env  = ask 'env', default: 'dev'     # blank input -> default
+exit 0 unless yes? 'continue?'       # y/Y prefix -> true, else false
+idx = choose 'Pick env', envs        # arrow-key picker, returns Integer or nil
+sh 'bundle install'                  # echo "$ cmd" gray, raise on non-zero
+
+Hammer::Shell.color!(true|false)     # force ANSI on/off
+Hammer::Shell.color?                 # current state
+Hammer::Shell.print_error 'msg'      # stderr, no raise - dispatcher-only
+```
+
+Doc rule: prefer `say.<color> 'x'` over `say 'x', :<color>` in README
+and examples - both work, but the proxy form reads better and is what
+new code in this gem should show.
+
+`choose` invariants worth knowing:
+
+* Uses `io/console` (stdlib, no new dependency).
+* TTY path renders the list, redraws on each keystroke (`\e[NA\e[J`),
+  hides/restores the cursor, and reads bytes via `$stdin.raw { ... }`.
+* Keys: `j`/`k` and arrow keys (ESC `[` `A`/`B`) move; Enter confirms;
+  `q`, ESC alone, and Ctrl-C cancel. ESC-vs-arrow is disambiguated with
+  a tiny `IO.select` timeout - the arrow's `[A` follows ESC immediately,
+  a bare ESC keystroke is alone.
+* Non-TTY path (`!$stdin.tty?` or stdin without `raw`) prints a numbered
+  list and reads one line. Both paths return the same: `Integer` index
+  or `nil`. Don't break this contract - it's why `choose` is scriptable.
+* On confirm, the rendered list is collapsed to one green line; on
+  cancel, the list is cleared. Don't leave the raw-mode list behind.
+* Empty `items` raises `Hammer::Error` ('at least one item') - same
+  failure pattern as bad colors.
+
+## Colors
+
+* Color set: `:black :red :green :yellow :blue :magenta :cyan :white :gray`
+  (see `Hammer::Shell::COLORS`). No bold, no bright variants, no
+  background colors. Don't add more without an explicit ask.
+* All four entry points (`say x, :c`, `say.c x`, `paint x, :c`,
+  `'x'.color(:c)`) flow through `Shell.paint` - it's the only place
+  ANSI codes live.
+* Unknown colors must raise `Hammer::Error` with the list of valid
+  names. This is enforced in `Shell.paint` and in `SayProxy#method_missing`
+  - don't bypass it. Validation runs even when colors are disabled, so
+  a typo fails loudly in CI.
+* `say` with no args returns the `SayProxy`; `say ''` is how you print
+  a blank line. Don't restore `say` (no args) -> blank-line semantics.
 
 ## Error handling
 

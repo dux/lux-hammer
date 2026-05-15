@@ -57,7 +57,9 @@ namespace :gem do
   define :publish do
     desc 'Build and push the gem to RubyGems'
     proc do
+      hammer_gem_version_inc
       hammer_gem_build
+
       file = Dir.glob('lux-hammer-*.gem').sort.last
       error 'no built gem found' unless file
       error 'cancelled' unless yes? "push #{file} to RubyGems?"
@@ -76,8 +78,8 @@ define :info do
     tests     = tst_files.sum { |f| File.read(f).scan(/^\s+def test_/).size }
     sha       = `git rev-parse --short HEAD 2>/dev/null`.strip
 
-    say "lux-hammer #{version}", :cyan, bold: true
-    say
+    say "lux-hammer #{version}", :cyan
+    say ''
     say "  lib files: #{rb_files.size} (#{loc} LOC)"
     say "  test files: #{tst_files.size} (#{tests} tests)"
     say "  homepage:  https://github.com/dux/hammer"

@@ -80,4 +80,83 @@ class ShellTest < Minitest::Test
     end
     assert_includes err.message, 'command failed: false'
   end
+
+  def test_paint_raises_on_unknown_color
+    err = assert_raises(Hammer::Error) { Hammer::Shell.paint('x', :magneta) }
+    assert_includes err.message, 'unknown color :magneta'
+    assert_includes err.message, 'cyan'
+  end
+
+  def test_string_color_paints
+    Hammer::Shell.color!(true)
+    assert_includes 'hi'.color(:cyan), "\e[36m"
+  ensure
+    Hammer::Shell.color!(false)
+  end
+
+  def test_string_color_raises_on_unknown
+    err = assert_raises(Hammer::Error) { 'x'.color(:nope) }
+    assert_includes err.message, 'unknown color :nope'
+  end
+
+  def test_say_proxy_prints_with_color
+    Hammer::Shell.color!(true)
+    out, = capture { Hammer::Shell.say.cyan('hi') }
+    assert_includes out, "\e[36m"
+    assert_includes out, 'hi'
+  ensure
+    Hammer::Shell.color!(false)
+  end
+
+  def test_say_proxy_raises_on_unknown_color
+    err = assert_raises(Hammer::Error) { Hammer::Shell.say.nope('x') }
+    assert_includes err.message, 'unknown color :nope'
+  end
+
+  def test_say_empty_string_prints_blank_line
+    out, = capture { Hammer::Shell.say('') }
+    assert_equal "\n", out
+  end
+
+  def test_choose_returns_selected_index_via_numbered_fallback
+    $stdin = StringIO.new("2\n")
+    out, = capture { @idx = Hammer::Shell.choose('Pick', %w[a b c]) }
+    assert_equal 1, @idx
+    assert_includes out, '1) a'
+    assert_includes out, '2) b'
+    assert_includes out, 'select [1-3]:'
+  ensure
+    $stdin = STDIN
+  end
+
+  def test_choose_returns_nil_on_out_of_range
+    $stdin = StringIO.new("99\n")
+    capture { @idx = Hammer::Shell.choose('Pick', %w[a b c]) }
+    assert_nil @idx
+  ensure
+    $stdin = STDIN
+  end
+
+  def test_choose_returns_nil_on_blank_input
+    $stdin = StringIO.new("\n")
+    capture { @idx = Hammer::Shell.choose('Pick', %w[a b c]) }
+    assert_nil @idx
+  ensure
+    $stdin = STDIN
+  end
+
+  def test_choose_returns_nil_on_eof
+    $stdin = StringIO.new('')
+    capture { @idx = Hammer::Shell.choose('Pick', %w[a b c]) }
+    assert_nil @idx
+  ensure
+    $stdin = STDIN
+  end
+
+  def test_choose_raises_on_empty_items
+    err = assert_raises(Hammer::Error) do
+      capture { Hammer::Shell.choose('Pick', []) }
+    end
+    assert_includes err.message, 'at least one item'
+  end
 end

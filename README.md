@@ -27,7 +27,7 @@ Create a `Hammerfile` in your project root:
 define :hello do
   desc 'say hi'
   proc do |opts|
-    say "hello #{opts[:args].first || 'world'}", :green
+    say.green "hello #{opts[:args].first || 'world'}"
   end
 end
 ```
@@ -143,7 +143,7 @@ define :build do
   opt :env,     default: 'dev'
 
   proc do |opts|
-    say "building #{opts[:env]}", :green
+    say.green "building #{opts[:env]}"
   end
 end
 ```
@@ -154,13 +154,11 @@ For when you'd rather write a Ruby method:
 
 ```ruby
 class MyCli < Hammer
-  program_name 'mycli'
-
   desc 'Build the project'
   opt :verbose, type: :boolean, alias: :v
   opt :env,     default: 'dev'
   def build(opts)
-    say "building #{opts[:env]}", :green
+    say.green "building #{opts[:env]}"
   end
 
   desc 'Ping with no opts'
@@ -177,22 +175,6 @@ regular method, never a command. Methods with arity 0 are called
 without opts; methods that take an argument receive the opts hash.
 
 Both styles can coexist in the same class.
-
-## Program name
-
-`program_name 'foo'` (alias `program 'foo'`) sets the name shown in
-help/usage output. It is **optional**. When omitted, the default is:
-
-* the invocation path **relative to cwd** if the script lives inside
-  the current working directory (e.g. `bin/foo` when invoked from the
-  project root as `./bin/foo` or `bin/foo`), or
-* the **basename** of `$PROGRAM_NAME` otherwise (e.g. `lux` for a
-  globally installed bin in `PATH`).
-
-So a project-local wrapper at `bin/foo` shows up in help as
-`Usage: bin/foo COMMAND [ARGS]`, while the same library invoked
-through a globally installed `lux` shim shows `Usage: lux ...`. Set
-`program 'whatever'` explicitly to override.
 
 ## Options (`opt`)
 
@@ -459,7 +441,7 @@ define :deploy do
   proc do |opts|
     hammer_build(env: 'prod', verbose: true)
     hammer_db_migrate
-    say 'deployed', :green
+    say.green 'deployed'
   end
 end
 ```
@@ -481,19 +463,111 @@ class level, useful for tests and scripting.
 
 ## Shell helpers
 
-Available inside any handler:
+These are mixed into every handler (and also live on `Hammer::Shell` for
+direct use).
+
+### `say` - print a line
 
 ```ruby
-say 'ok', :green
-say 'big', :yellow, bold: true
-error 'something broke'        # prints + exits 1 (raises Hammer::Error)
-name = ask 'name', default: 'world'
-exit 0 unless yes? 'continue?'
-sh 'bundle install'            # echoes "$ bundle install", aborts on non-zero
+say 'plain output'             # no color
+say.green 'ok'                 # color via proxy (preferred)
+say.cyan  "env=#{env}"         # interpolation works the same
+say 'equivalent', :green       # two-arg form is still supported
+say ''                         # blank line
 ```
 
-Colors are auto-disabled when stdout isn't a TTY, when `NO_COLOR` is
-set, or programmatically via `Hammer::Shell.color!(false)`.
+`say` with no args returns a tiny proxy that exposes one method per
+color: `say.red 'x'` is just `say('x', :red)`. The proxy form reads
+better when colors are the common case. Use `say ''` for an explicit
+blank line.
+
+### `String#color` - paint a string without printing
+
+```ruby
+label = 'OK'.color(:green)
+puts "[#{label}] done"         # embed colored chunks anywhere
+
+Hammer::Shell.paint('x', :red) # the underlying primitive `say` uses
+```
+
+### Colors
+
+Valid names: `:black :red :green :yellow :blue :magenta :cyan :white :gray`.
+Unknown colors (in `say`, `say.<color>`, `paint`, or `String#color`)
+raise `Hammer::Error` listing the valid names - even when colors are
+disabled, so typos fail loudly in CI.
+
+Colors are auto-disabled when stdout isn't a TTY or when `NO_COLOR` is
+set. Force on/off programmatically:
+
+```ruby
+Hammer::Shell.color!(true)     # force ANSI on
+Hammer::Shell.color!(false)    # force off
+Hammer::Shell.color?           # current state (bool)
+```
+
+### `error` - controlled failure
+
+```ruby
+error 'config file missing' unless File.exist?('config.yml')
+# -> dispatcher prints "[error] config file missing" in red, exits 1
+# No backtrace, no per-command help spam.
+```
+
+Internally it just raises `Hammer::Error`; the dispatcher catches it.
+
+### `ask` - read one line from stdin
+
+```ruby
+name = ask 'your name'                       # required-style prompt
+env  = ask 'env', default: 'dev'             # blank input -> "dev"
+```
+
+The prompt is shown in cyan with the default in brackets when present.
+Returns the typed line (chomped) or the default on a blank line.
+
+### `yes?` - y/N confirmation
+
+```ruby
+exit 0 unless yes? 'continue?'               # anything starting with y/Y -> true
+                                             # blank, n, anything else -> false
+```
+
+### `choose` - arrow-key picker
+
+```ruby
+envs = %w[dev staging prod]
+idx  = choose 'Pick env', envs
+say.green "deploying to #{envs[idx]}" if idx
+```
+
+While the picker is up: `j`/`k` or `↑`/`↓` to move, `Enter` to confirm,
+`q` / `ESC` / Ctrl-C to cancel. Returns the integer index of the
+selected item, or `nil` on cancel.
+
+When stdin isn't a TTY (pipes, redirected scripts, tests), `choose`
+falls back to a numbered prompt: it prints each item with a number and
+reads a line - same return contract, so calling code doesn't change.
+
+```
+$ echo 2 | mycli some-cmd
+Pick env
+  1) dev
+  2) staging
+  3) prod
+select [1-3]:
+# idx -> 1 (zero-based)
+```
+
+### `sh` - run a shell command, abort on failure
+
+```ruby
+sh 'bundle install'                          # echoes "$ bundle install" in gray
+sh "git tag v#{version}"                     # raises Hammer::Error on non-zero
+```
+
+Returns `true` on success. On non-zero exit it raises `Hammer::Error`,
+which the dispatcher turns into `[error] command failed: ...` + exit 1.
 
 ## Splitting across files (`load`)
 
@@ -502,7 +576,6 @@ in any file ending in `_hammer.rb` and pull them in with `load`:
 
 ```ruby
 # Hammerfile
-program 'demo'
 load auto: true              # recursive scan for *_hammer.rb from here
 ```
 
@@ -512,7 +585,7 @@ namespace :db do
   define :migrate do
     desc 'Run pending migrations'
     opt :pretend, type: :boolean, alias: :p
-    proc { |o| say "migrating pretend=#{o[:pretend].inspect}", :green }
+    proc { |o| say.green "migrating pretend=#{o[:pretend].inspect}" }
   end
 end
 ```
@@ -523,7 +596,7 @@ define :deploy do
   desc 'Deploy to prod'
   proc do |_|
     hammer_db_migrate        # cross-file invocation just works
-    say 'deployed', :cyan
+    say.cyan 'deployed'
   end
 end
 ```
@@ -575,15 +648,13 @@ Same shape as a Hammerfile, just inline:
 require 'lux-hammer'
 
 Hammer.run(ARGV) do
-  program 'inline'
-
   define :hello do
     desc 'say hi'
     opt :loud, type: :boolean, alias: :l
     proc do |opts|
       msg = "hello #{opts[:args].first || 'world'}"
       msg = msg.upcase if opts[:loud]
-      say msg, :cyan
+      say.cyan msg
     end
   end
 end
@@ -592,9 +663,6 @@ end
 ## Complete example (every feature)
 
 ```ruby
-# Hammerfile
-program 'demo'
-
 # Simple top-level command
 define :build do
   desc    'Build the project'
@@ -605,7 +673,7 @@ define :build do
 
   proc do |opts|
     target = opts[:args].first || opts[:env]
-    say "building #{target}", :green, bold: true
+    say.green "building #{target}"
     say '  verbose on' if opts[:verbose]
   end
 end
@@ -620,7 +688,7 @@ define :deploy do
   proc do |opts|
     hammer_build(env: 'prod')
     exit 0 unless yes? "deploy to #{opts[:url]}?" unless opts[:force]
-    say "deploying to #{opts[:url]}", :yellow
+    say.yellow "deploying to #{opts[:url]}"
   end
 end
 
@@ -634,7 +702,7 @@ namespace :db do
 
     proc do |opts|
       step = opts[:args].first || 'all'
-      say "migrating #{step} pretend=#{opts[:pretend].inspect}", :green
+      say.green "migrating #{step} pretend=#{opts[:pretend].inspect}"
     end
   end
 
@@ -645,7 +713,7 @@ namespace :db do
       opt :limit, type: :integer, default: 100
 
       proc do |opts|
-        say "users role=#{opts[:role]} limit=#{opts[:limit]}", :cyan
+        say.cyan "users role=#{opts[:role]} limit=#{opts[:limit]}"
       end
     end
 
@@ -719,8 +787,6 @@ directly. Useful for embedding or testing:
 require 'lux-hammer'
 
 class MyCli < Hammer
-  program_name 'mycli'
-
   define :greet do
     opt :loud, type: :boolean
     proc do |opts|

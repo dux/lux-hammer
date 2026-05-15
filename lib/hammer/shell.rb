@@ -1,3 +1,5 @@
+require 'io/console'
+
 class Hammer
   # ANSI color/output helpers. Mixed into command instances; also callable
   # directly as `Hammer::Shell.say(...)`.
@@ -19,15 +21,33 @@ class Hammer
       @color = value
     end
 
-    def paint(text, color = nil, bold: false)
-      return text.to_s unless color? && (color || bold)
-      code = COLORS[color] || 0
-      prefix = bold ? "\e[1;#{code}m" : "\e[#{code}m"
-      "#{prefix}#{text}\e[0m"
+    def paint(text, color = nil)
+      if color && !COLORS.key?(color)
+        raise Hammer::Error, "unknown color #{color.inspect} (valid: #{COLORS.keys.join(', ')})"
+      end
+      return text.to_s unless color? && color
+      "\e[#{COLORS[color]}m#{text}\e[0m"
     end
 
-    def say(text = '', color = nil, bold: false)
-      puts paint(text, color, bold: bold)
+    # `say` with no args returns a proxy so you can write `say.cyan 'hi'`.
+    # `say('')` still prints a blank line; `say('x', :cyan)` is unchanged.
+    def say(text = nil, color = nil)
+      return SayProxy.new if text.nil?
+      puts paint(text, color)
+    end
+
+    class SayProxy
+      COLORS.each_key do |name|
+        define_method(name) { |text = ''| Shell.say(text, name) }
+      end
+
+      def method_missing(name, *)
+        raise Hammer::Error, "unknown color :#{name} (valid: #{COLORS.keys.join(', ')})"
+      end
+
+      def respond_to_missing?(_name, _include_private = false)
+        false
+      end
     end
 
     # Raise a controlled Hammer::Error. If unhandled, the dispatcher
@@ -41,7 +61,7 @@ class Hammer
     # Print a red [error] line to stderr (does not exit). Used internally
     # by the dispatcher to render Hammer::Error messages.
     def print_error(text)
-      warn paint("[error] #{text}", :red, bold: true)
+      warn paint("[error] #{text}", :red)
     end
 
     def ask(prompt, default: nil)
@@ -59,6 +79,75 @@ class Hammer
       answer.to_s.strip.downcase.start_with?('y')
     end
 
+    # Arrow-key picker. Returns the chosen index, or nil on cancel
+    # (ESC, Ctrl-C, q). Non-TTY input falls back to a numbered prompt
+    # so this stays scriptable.
+    #
+    #   idx = choose 'Pick env', %w[dev staging prod]
+    #   say.green "chose #{ %w[dev staging prod][idx] }" if idx
+    def choose(prompt, items)
+      items = items.to_a
+      error 'choose needs at least one item' if items.empty?
+
+      say.cyan prompt
+
+      return choose_numbered(items) unless $stdin.tty? && $stdin.respond_to?(:raw)
+
+      selected = 0
+      redraw = lambda do |highlight = :cyan|
+        items.each_with_index do |item, i|
+          puts(i == selected ? paint("> #{item}", highlight) : "  #{item}")
+        end
+      end
+      redraw.call
+
+      $stdout.print "\e[?25l" # hide cursor
+      begin
+        $stdin.raw do |io|
+          loop do
+            ch = io.getch
+            case ch
+            when "\r", "\n"
+              # Collapse the list to the chosen line, in green.
+              $stdout.print "\e[#{items.size}A\e[J"
+              puts paint("> #{items[selected]}", :green)
+              return selected
+            when "\x03", 'q' # Ctrl-C, q
+              $stdout.print "\e[#{items.size}A\e[J"
+              return nil
+            when "\e"
+              # ESC may stand alone or start an arrow sequence \e[A / \e[B.
+              if IO.select([io], nil, nil, 0.01) && io.getch == '['
+                case io.getch
+                when 'A' then selected = (selected - 1) % items.size
+                when 'B' then selected = (selected + 1) % items.size
+                end
+              else
+                $stdout.print "\e[#{items.size}A\e[J"
+                return nil
+              end
+            when 'k' then selected = (selected - 1) % items.size
+            when 'j' then selected = (selected + 1) % items.size
+            end
+            $stdout.print "\e[#{items.size}A\e[J"
+            redraw.call
+          end
+        end
+      ensure
+        $stdout.print "\e[?25h" # show cursor
+      end
+    end
+
+    # Fallback for non-TTY stdin (pipes, tests). Returns the index or nil.
+    def choose_numbered(items)
+      items.each_with_index { |item, i| puts "  #{i + 1}) #{item}" }
+      print paint("select [1-#{items.size}]: ", :cyan)
+      line = $stdin.gets
+      return nil if line.nil?
+      idx = line.strip.to_i - 1
+      idx.between?(0, items.size - 1) ? idx : nil
+    end
+
     # Run a shell command. Echoes the command in gray, raises
     # Hammer::Error on non-zero exit. Returns true on success.
     def sh(cmd)
@@ -66,5 +155,12 @@ class Hammer
       error "command failed: #{cmd}" unless system(cmd)
       true
     end
+  end
+end
+
+# `"hi".color(:cyan)` -> ANSI-painted string. Raises on unknown color.
+class String
+  def color(name)
+    Hammer::Shell.paint(self, name)
   end
 end

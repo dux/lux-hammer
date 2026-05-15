@@ -337,15 +337,15 @@ class Hammer
         return
       end
 
-      Shell.say "Usage: #{program_name} COMMAND [ARGS]", :cyan, bold: true
-      Shell.say
+      Shell.say "Usage: #{program_name} COMMAND [ARGS]", :cyan
+      Shell.say ''
       print_command_list(self)
       print_footer
     end
 
     def print_namespace_help(prefix, ns)
-      Shell.say "Usage: #{program_name} #{prefix}:COMMAND [ARGS]", :cyan, bold: true
-      Shell.say
+      Shell.say "Usage: #{program_name} #{prefix}:COMMAND [ARGS]", :cyan
+      Shell.say ''
       print_command_list(ns, prefix)
       print_footer
     end
@@ -353,7 +353,7 @@ class Hammer
     HOMEPAGE ||= 'https://github.com/dux/hammer'.freeze
 
     def print_footer
-      Shell.say
+      Shell.say ''
       Shell.say "powered by hammer - #{HOMEPAGE}", :gray
     end
 
@@ -422,19 +422,19 @@ class Hammer
 
     def print_command_help(cmd, full = nil)
       full ||= cmd.name
-      Shell.say "Usage: #{program_name} #{full}#{usage_signature(cmd)}", :cyan, bold: true
+      Shell.say "Usage: #{program_name} #{full}#{usage_signature(cmd)}", :cyan
       cmd.desc.each_line do |line|
         stripped = line.chomp
         Shell.say(stripped.empty? ? '' : "  #{stripped}")
       end unless cmd.desc.empty?
       Shell.say "  alias: #{cmd.alts.join(', ')}" unless cmd.alts.empty?
       unless cmd.options.empty?
-        Shell.say
+        Shell.say ''
         Shell.say 'Options:', :yellow
         cmd.options.each { |o| Shell.say "  #{o.usage}" }
       end
       unless cmd.examples.empty?
-        Shell.say
+        Shell.say ''
         Shell.say 'Examples:', :yellow
         cmd.examples.each { |e| Shell.say "  #{program_name} #{e}" }
       end

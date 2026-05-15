@@ -14,7 +14,7 @@ class MyCli < Hammer
 
     proc do |opts|
       target = opts[:args].first || opts[:env]
-      say "building #{target}", :green, bold: true
+      say "building #{target}", :green
       say '  verbose on' if opts[:verbose]
     end
   end
