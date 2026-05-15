@@ -1,7 +1,5 @@
 # run with bin/hammer
 
-program 'hammer'
-
 define :test do
   desc 'Run the full test suite (minitest, no Rake)'
   proc do

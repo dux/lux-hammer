@@ -161,11 +161,22 @@ class Hammer
     #   end
     def namespace(name, &block)
       sub = Class.new(Hammer)
+      # Track the top-level CLI class so cross-invocation
+      # (`hammer_<colon_path>`) from inside a namespaced command dispatches
+      # against the full tree, not just the current namespace.
+      sub.instance_variable_set(:@root, root)
       # Inherit program_name so help banners show "myapp ns:cmd", not
       # whichever binary the namespace class fell back to.
       sub.program_name(program_name) if @program_name
       sub.class_eval(&block) if block
       @namespaces[name.to_s] = sub
+    end
+
+    # Topmost class in this CLI tree. For user-defined `class MyCli < Hammer`
+    # or `Class.new(Hammer)` it's self; for namespace subclasses it's
+    # whichever class opened the namespace.
+    def root
+      @root || self
     end
 
     def commands
@@ -359,7 +370,7 @@ class Hammer
 
       if (rooted = groups.delete(:root))
         Shell.say 'Commands:', :yellow
-        emit_rows(rooted, width)
+        emit_rows(rooted.sort_by { |full, _| full }, width)
         first = false
       end
 
@@ -367,7 +378,7 @@ class Hammer
         Shell.say unless first
         first = false
         Shell.say "#{section}:", :yellow
-        emit_rows(items, width)
+        emit_rows(items.sort_by { |full, _| full }, width)
       end
     end
 
@@ -378,14 +389,16 @@ class Hammer
       end
     end
 
-    # 'db' for 'db:migrate' viewed from root; 'users' for 'db:users:list'
-    # viewed from 'db'; :root if the command sits at the view's top level.
+    # 'db' for 'db:migrate' or 'db:users:list' viewed from root; 'users'
+    # for 'db:users:list' viewed from 'db'; :root if the command sits at
+    # the view's top level. Only the first segment under the view groups,
+    # so deeper paths fold into their top-level section.
     def section_for(full, prefix)
       segs = full.split(':')[0..-2]
       if prefix && !prefix.empty?
         segs = segs[prefix.split(':').size..] || []
       end
-      segs.empty? ? :root : segs.join(':')
+      segs.empty? ? :root : segs.first
     end
 
     # "db:migrate" or "db:migrate (alt: m)"
@@ -438,7 +451,10 @@ class Hammer
   #   end
   def method_missing(name, *args, **kwargs, &block)
     return super unless name.to_s.start_with?('hammer_')
-    self.class.send(name, *args, **kwargs, &block)
+    # Dispatch from the root class so `hammer_a_b` resolves against the
+    # full colon path "a:b" even when called inside a namespaced command
+    # (where self.class would be the namespace subclass).
+    self.class.root.send(name, *args, **kwargs, &block)
   end
 
   def respond_to_missing?(name, include_private = false)

@@ -464,6 +464,25 @@ class DslTest < Minitest::Test
     assert_equal [%w[a b]], log
   end
 
+  def test_hammer_cross_invoke_from_inside_namespaced_command
+    log = []
+    cli = build_cli do
+      namespace :gem do
+        define :build do
+          proc { |_| log << :build }
+        end
+        define :publish do
+          proc do |_|
+            hammer_gem_build
+            log << :publish
+          end
+        end
+      end
+    end
+    capture { cli.start(['gem:publish']) }
+    assert_equal [:build, :publish], log
+  end
+
   def test_hammer_kwargs_become_flags
     captured = nil
     cli = build_cli do
