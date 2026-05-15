@@ -1,0 +1,43 @@
+program 'demo'
+
+define :build do
+  desc    'Build the project'
+  example 'build prod -v'
+  opt :verbose, type: :boolean, alias: :v
+  opt :env,     default: 'dev'
+
+  proc do |opts|
+    target = opts[:args].first || opts[:env]
+    say "building #{target}", :green, bold: true
+    say '  verbose on' if opts[:verbose]
+  end
+end
+
+define :deploy do
+  desc 'Deploy to URL'
+  opt :url, req: true
+  opt :force, type: :boolean
+
+  proc do |opts|
+    hammer_build(env: 'prod')
+    say "deploying to #{opts[:url]} force=#{opts[:force]}", :yellow
+  end
+end
+
+namespace :db do
+  define :migrate do
+    desc 'Run pending migrations'
+    opt :pretend, type: :boolean, alias: :p
+    proc do |opts|
+      step = opts[:args].first || 'all'
+      say "migrating #{step} pretend=#{opts[:pretend].inspect}", :green
+    end
+  end
+
+  namespace :users do
+    define :list do
+      desc 'List users'
+      proc { |opts| say "users: #{opts[:args].inspect}", :cyan }
+    end
+  end
+end

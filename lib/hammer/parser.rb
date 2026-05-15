@@ -1,0 +1,83 @@
+class Hammer
+  # Parses ARGV into positional args and an options hash, given a set
+  # of `Option` definitions.
+  class Parser
+    Error ||= Class.new(StandardError)
+
+    def initialize(options)
+      @options    = options
+      @by_switch  = {}
+      options.each do |opt|
+        @by_switch[opt.switch] = opt
+        @by_switch[opt.negation] = opt if opt.boolean?
+        opt.aliases.each { |a| @by_switch[a] = opt }
+      end
+    end
+
+    def parse(argv)
+      positional = []
+      values     = {}
+      i = 0
+      argv = argv.dup
+
+      while i < argv.length
+        token = argv[i]
+
+        if token == '--'
+          positional.concat(argv[(i + 1)..])
+          break
+        end
+
+        if token.start_with?('--') && token.include?('=')
+          key, val = token.split('=', 2)
+          opt = lookup!(key)
+          values[opt.name] = opt.cast(val)
+          i += 1
+          next
+        end
+
+        if @by_switch.key?(token)
+          opt = @by_switch[token]
+          if opt.boolean?
+            values[opt.name] = !token.start_with?('--no-')
+            i += 1
+          else
+            val = argv[i + 1]
+            raise Error, "missing value for #{token}" if val.nil?
+            values[opt.name] = opt.cast(val)
+            i += 2
+          end
+          next
+        end
+
+        if token.start_with?('-') && token.length > 1
+          raise Error, "unknown option: #{token}"
+        end
+
+        positional << token
+        i += 1
+      end
+
+      # Fill un-set non-boolean opts from positional args in declaration
+      # order. Booleans always need an explicit flag.
+      @options.each do |opt|
+        break if positional.empty?
+        next if opt.boolean? || values.key?(opt.name)
+        values[opt.name] = opt.cast(positional.shift)
+      end
+
+      @options.each do |opt|
+        values[opt.name] = opt.default if !values.key?(opt.name) && !opt.default.nil?
+        raise Error, "missing required --#{opt.name}" if opt.required && !values.key?(opt.name)
+      end
+
+      [positional, values]
+    end
+
+    private
+
+    def lookup!(key)
+      @by_switch[key] or raise Error, "unknown option: #{key}"
+    end
+  end
+end
