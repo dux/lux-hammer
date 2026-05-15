@@ -1,7 +1,7 @@
 class Hammer
   # A single registered command on a Hammer class.
   class Command
-    attr_reader :name, :desc, :options, :examples, :alts
+    attr_reader :name, :desc, :options, :examples, :alts, :needs
     attr_accessor :handler
 
     def initialize(name:, desc: '', handler: nil)
@@ -11,6 +11,7 @@ class Hammer
       @options  = []
       @examples = []
       @alts     = []
+      @needs    = []
     end
 
     # First line of `desc`, used in the flat command listing.
@@ -28,6 +29,10 @@ class Hammer
 
     def add_alt(name)
       @alts << name.to_s
+    end
+
+    def add_need(name)
+      @needs << name.to_s
     end
 
     def matches?(name)

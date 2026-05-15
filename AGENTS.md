@@ -63,11 +63,15 @@ Inside a `define :name do ... end` block (CommandBuilder context):
 * `opt :name, type:, default:, alias:, desc:, req:` - any other kwarg
   raises `Hammer::Error` ("unknown opt parameter(s)")
 * `alt :other_name` (callable many times)
+* `needs :other_cmd, 'ns:cmd'` - prereqs run before the handler;
+  resolved against root (same lookup as `hammer_*`), deduped per
+  top-level `start` so each prereq fires at most once. Unknown prereq
+  raises `Hammer::Error`.
 * `proc do |opts| ... end` - **the last expression**, becomes handler
 
 At class scope (for `def`-style commands):
 
-* `desc`, `example`, `opt`, `alt` set pending state
+* `desc`, `example`, `opt`, `alt`, `needs` set pending state
 * The next `def` consumes the pending state IF `desc` was set; otherwise
   the method is treated as a plain helper
 * Methods with arity 0 are called without opts; methods that take an arg
@@ -77,9 +81,13 @@ At class or `Hammerfile` scope:
 
 * `define :name do ... end`
 * `namespace :name do ... end`
-* `load` / `load auto: true` / `load 'path/file.rb'` / `load 'glob/*.rb'` -
-  pull in Hammerfile fragments from `*_hammer.rb` files. Paths resolve
-  relative to the caller's file. Fragments are de-duplicated per
+* `load` / `load auto: true` / `load 'path/file.rb'` / `load 'glob/*.rb'` /
+  `load 'some/dir'` - pull in Hammerfile fragments from `*_hammer.rb`
+  files. Paths resolve relative to the caller's file. A directory
+  argument triggers the same recursive scan as `load auto: true` but
+  anchored at the given dir (empty result is OK, no error - apps with
+  no fragments are normal). Globs and explicit file paths still raise
+  on zero matches as a typo guard. Fragments are de-duplicated per
   target class, so re-entrant `load` is safe. Skipped dirs:
   `.git`, `.bundle`, `node_modules`, `tmp`, `vendor`, `dist`, `build`,
   `coverage`, plus any hidden dir. Fragment shape is the block DSL
@@ -91,6 +99,24 @@ Runtime cross-invocation:
 * `hammer_<colon_path>(*args, **kwargs)` - underscores in name become
   colons, underscores in kwarg keys become dashes, boolean kwargs become
   `--flag`/`--no-flag`
+
+## Entry points
+
+* `Hammer.run(argv = ARGV) { ... }` - inline block DSL, builds an
+  anonymous subclass, dispatches `argv` against it.
+* `Hammer.run(argv = ARGV)` - **without a block**: load `./Hammerfile`
+  if present, otherwise auto-discover `*_hammer.rb` under `Dir.pwd`,
+  then dispatch. No walk-up, no chdir. The "do the obvious thing"
+  entry point for a fixed bin script; users who need
+  walk-up + chdir + missing-Hammerfile error use `Hammer.cli`
+  (`bin/hammer`).
+* `Hammer.cli(argv = ARGV)` - internal entry for `bin/hammer` only:
+  walks up from `Dir.pwd` for a `Hammerfile`, chdirs into its dir,
+  errors if none found anywhere up the tree. Not part of the
+  user-facing surface - don't recommend it in examples; `Hammer.run`
+  is what library users should reach for.
+* `class MyCli < Hammer; ... end; MyCli.start(ARGV)` - classic class
+  DSL. `.start` is the dispatch primitive everything else funnels into.
 
 ## `opts` hash contract
 
@@ -225,9 +251,6 @@ fix a bug, write the failing test first.
 
 ## What NOT to do
 
-* Don't add command-level prerequisites (`task :build => [:clean]`)
-  unless explicitly asked - the convention is `hammer_clean` inside
-  the dependent's proc.
 * Don't add generators / templates (Thor-style file scaffolding).
 * Don't add shell-completion generation to core - that belongs in a
   separate plugin gem.

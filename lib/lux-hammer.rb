@@ -50,11 +50,14 @@ class Hammer
       super
       sub.instance_variable_set(:@commands, {})
       sub.instance_variable_set(:@namespaces, {})
+      sub.instance_variable_set(:@before_hooks, [])
+      sub.instance_variable_set(:@parent, nil)
       sub.instance_variable_set(:@program_name, nil)
       sub.instance_variable_set(:@pending_desc, nil)
       sub.instance_variable_set(:@pending_examples, [])
       sub.instance_variable_set(:@pending_options, [])
       sub.instance_variable_set(:@pending_alts, [])
+      sub.instance_variable_set(:@pending_needs, [])
     end
 
     # ----- class-level DSL for `def`-style commands ---------------------
@@ -72,6 +75,7 @@ class Hammer
     def example(text)    ; @pending_examples << text end
     def opt(name, **o)   ; @pending_options << Option.new(name, **o) end
     def alt(*names)      ; @pending_alts.concat(names) end
+    def needs(*names)    ; @pending_needs.concat(names) end
 
     def method_added(method_name)
       super
@@ -81,6 +85,7 @@ class Hammer
       @pending_examples.each { |e| cmd.add_example(e) }
       @pending_options.each  { |o| cmd.add_option(o) }
       @pending_alts.each     { |n| cmd.add_alt(n) }
+      @pending_needs.each    { |n| cmd.add_need(n) }
 
       # If the method takes no args, call it without opts. Otherwise pass
       # opts. So both `def build` and `def build(opts)` work.
@@ -93,6 +98,7 @@ class Hammer
       @pending_examples = []
       @pending_options  = []
       @pending_alts     = []
+      @pending_needs    = []
     end
 
     def program_name(name = nil)
@@ -149,6 +155,7 @@ class Hammer
       @pending_examples = []
       @pending_options  = []
       @pending_alts     = []
+      @pending_needs    = []
     end
 
     # Open a namespace (group of commands). Everything inside the block
@@ -165,11 +172,46 @@ class Hammer
       # (`hammer_<colon_path>`) from inside a namespaced command dispatches
       # against the full tree, not just the current namespace.
       sub.instance_variable_set(:@root, root)
+      # Parent link, so `before` hooks defined further up the namespace
+      # tree can be collected and run outer -> inner before a command.
+      sub.instance_variable_set(:@parent, self)
       # Inherit program_name so help banners show "myapp ns:cmd", not
       # whichever binary the namespace class fell back to.
       sub.program_name(program_name) if @program_name
       sub.class_eval(&block) if block
       @namespaces[name.to_s] = sub
+    end
+
+    # Register a hook to run before every command in this class (root or
+    # namespace). Hooks receive the command's `opts` hash. All hooks run
+    # outer -> inner, once per top-level `start` (prereqs don't re-trigger).
+    #
+    #   before { |opts| Dotenv.load }
+    #   namespace :db do
+    #     before { hammer_env }
+    #     define :migrate do ... end
+    #   end
+    def before(&block)
+      before_hooks << block
+    end
+
+    def before_hooks
+      @before_hooks
+    end
+
+    def parent
+      @parent
+    end
+
+    # Root -> ... -> self. Used to gather `before` hooks for a command.
+    def ancestor_chain
+      chain = []
+      klass = self
+      while klass
+        chain.unshift klass
+        klass = klass.parent
+      end
+      chain
     end
 
     # Topmost class in this CLI tree. For user-defined `class MyCli < Hammer`
@@ -216,6 +258,14 @@ class Hammer
     # Command names are Rake-style colon paths: "build", "db:migrate",
     # "db:users:list".
     def start(argv = ARGV)
+      # Track prereqs fired during this top-level invocation so a `needs`
+      # chain runs each prereq at most once. Nested `start` calls (e.g.
+      # `needs` -> `hammer_*` -> `start`) share the set; the outermost
+      # call owns its lifetime.
+      outer = Thread.current[:hammer_needs_ran].nil?
+      Thread.current[:hammer_needs_ran] ||= {}
+      Thread.current[:hammer_before_ran] ||= {}
+
       argv = argv.dup
       name = argv.shift
 
@@ -233,6 +283,9 @@ class Hammer
       Shell.print_error("unknown command: #{name}")
       print_help
       exit 1
+    ensure
+      Thread.current[:hammer_needs_ran] = nil if outer
+      Thread.current[:hammer_before_ran] = nil if outer
     end
 
     # Find a command by canonical name or alt within this class.
@@ -309,6 +362,8 @@ class Hammer
       positional, opts = Parser.new(cmd.options).parse(argv)
       opts[:args] = positional
       instance = new
+      run_before_hooks(instance, opts)
+      run_needs(cmd)
       instance.instance_exec(opts, &cmd.handler)
     rescue Parser::Error => e
       Shell.print_error(e.message)
@@ -319,6 +374,33 @@ class Hammer
       # backtrace, no per-command help spam.
       Shell.print_error(e.message)
       exit 1
+    end
+
+    # Fire `before` hooks from root down through the namespace chain.
+    # Each class's hooks fire at most once per top-level `start`, so
+    # prereqs dispatched via `needs` won't re-trigger them.
+    def run_before_hooks(instance, opts)
+      ran = Thread.current[:hammer_before_ran] ||= {}
+      ancestor_chain.each do |klass|
+        next if ran[klass.object_id]
+        ran[klass.object_id] = true
+        klass.before_hooks.each { |hook| instance.instance_exec(opts, &hook) }
+      end
+    end
+
+    # Dispatch a command's declared `needs` through the root class, with
+    # per-invocation dedupe. Prereqs run with default options (no argv).
+    def run_needs(cmd)
+      return if cmd.needs.empty?
+      ran = Thread.current[:hammer_needs_ran] ||= {}
+      cmd.needs.each do |path|
+        key = path.to_s
+        next if ran[key]
+        ran[key] = true
+        target, = root.resolve(key)
+        raise Error, "needs: unknown command '#{key}' in #{cmd.name}" unless target
+        root.start([key])
+      end
     end
 
     def help_requested?(argv)
@@ -359,7 +441,10 @@ class Hammer
 
     def print_command_list(klass, prefix = nil)
       rows = []
-      klass.each_command(prefix) { |full, c| rows << [full, c] }
+      # Commands without a `desc` are hidden from listings but still
+      # dispatchable + `hammer_*`-callable - useful for private helpers
+      # invoked from `before` hooks or other commands (e.g. `:env`, `:app`).
+      klass.each_command(prefix) { |full, c| rows << [full, c] unless c.desc.empty? }
       return if rows.empty?
 
       # group by "section" = everything between the view prefix and the
@@ -465,9 +550,21 @@ class Hammer
 
   # Define and run a CLI inline. Inside the block use `program`,
   # `define :name do ... end`, and `namespace`.
+  #
+  # Without a block: load ./Hammerfile if it exists, otherwise
+  # auto-discover *_hammer.rb under Dir.pwd, then dispatch ARGV.
   def self.run(argv = ARGV, &block)
     klass = Class.new(Hammer)
-    Builder.new(klass).instance_eval(&block)
+    if block
+      Builder.new(klass).instance_eval(&block)
+    else
+      hf = File.join(Dir.pwd, 'Hammerfile')
+      if File.file?(hf)
+        Builder.new(klass).instance_eval(File.read(hf), hf)
+      else
+        klass.loader.load(Dir.pwd, [], auto: true)
+      end
+    end
     klass.start(argv)
   end
 

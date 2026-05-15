@@ -38,16 +38,16 @@ class Hammer
 
     def resolve_pattern(anchor, pattern)
       abs = File.expand_path(pattern, anchor)
-      matches =
-        if abs.match?(/[\*\?\[\{]/)
-          Dir.glob(abs)
-        elsif File.file?(abs)
-          [abs]
-        else
-          []
-        end
-      raise Hammer::Error, "load: no files matched #{pattern.inspect}" if matches.empty?
-      matches.sort
+      if abs.match?(/[\*\?\[\{]/)
+        matches = Dir.glob(abs).sort
+        raise Hammer::Error, "load: no files matched #{pattern.inspect}" if matches.empty?
+        return matches
+      end
+      # Directory: discover *_hammer.rb under it. Empty result is OK
+      # (an app may legitimately have no fragments).
+      return discover(abs) if File.directory?(abs)
+      return [abs] if File.file?(abs)
+      raise Hammer::Error, "load: no files matched #{pattern.inspect}"
     end
 
     def discover(dir)

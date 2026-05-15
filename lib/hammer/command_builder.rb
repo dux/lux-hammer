@@ -22,5 +22,9 @@ class Hammer
     def alt(*names)
       names.each { |n| @cmd.add_alt(n) }
     end
+
+    def needs(*names)
+      names.each { |n| @cmd.add_need(n) }
+    end
   end
 end

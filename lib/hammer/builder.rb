@@ -19,6 +19,12 @@ class Hammer
       @klass.namespace(name, &block)
     end
 
+    # Per-target / per-namespace pre-hook. Same semantics as
+    # `Hammer.before` at the class level - see lux-hammer.rb.
+    def before(&block)
+      @klass.before(&block)
+    end
+
     # Same surface as `Hammer.load`. Resolved relative to the file that
     # called us, so `load auto: true` inside a Hammerfile picks up
     # *_hammer.rb under the Hammerfile's directory.

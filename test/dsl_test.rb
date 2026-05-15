@@ -649,6 +649,297 @@ class DslTest < Minitest::Test
     end
   end
 
+  # ----- before hooks ------------------------------------------------
+
+  def test_before_runs_at_root_scope
+    log = []
+    cli = build_cli do
+      before { log << :root }
+      define :x do
+        proc { |_| log << :cmd }
+      end
+    end
+    capture { cli.start(['x']) }
+    assert_equal [:root, :cmd], log
+  end
+
+  def test_before_runs_outer_then_inner_for_nested_namespaces
+    log = []
+    cli = build_cli do
+      before { log << :root }
+      namespace :db do
+        before { log << :db }
+        namespace :users do
+          before { log << :users }
+          define :list do
+            proc { |_| log << :cmd }
+          end
+        end
+      end
+    end
+    capture { cli.start(%w[db:users:list]) }
+    assert_equal [:root, :db, :users, :cmd], log
+  end
+
+  def test_before_only_fires_for_commands_in_its_subtree
+    log = []
+    cli = build_cli do
+      namespace :db do
+        before { log << :db }
+        define :migrate do
+          proc { |_| log << :migrate }
+        end
+      end
+      define :build do
+        proc { |_| log << :build }
+      end
+    end
+    capture { cli.start(['build']) }
+    assert_equal [:build], log
+    log.clear
+    capture { cli.start(['db:migrate']) }
+    assert_equal [:db, :migrate], log
+  end
+
+  def test_before_can_call_hammer_helpers
+    log = []
+    cli = build_cli do
+      define :setup do
+        proc { |_| log << :setup }
+      end
+      namespace :db do
+        before { hammer_setup }
+        define :migrate do
+          proc { |_| log << :migrate }
+        end
+      end
+    end
+    capture { cli.start(['db:migrate']) }
+    assert_equal [:setup, :migrate], log
+  end
+
+  def test_multiple_before_blocks_in_same_scope_run_in_order
+    log = []
+    cli = build_cli do
+      namespace :db do
+        before { log << :one }
+        before { log << :two }
+        define :x do
+          proc { |_| log << :cmd }
+        end
+      end
+    end
+    capture { cli.start(['db:x']) }
+    assert_equal [:one, :two, :cmd], log
+  end
+
+  def test_before_in_block_dsl
+    log = []
+    capture do
+      Hammer.run(['x']) do
+        program 'inline'
+        before { log << :hook }
+        define :x do
+          proc { |_| log << :cmd }
+        end
+      end
+    end
+    assert_equal [:hook, :cmd], log
+  end
+
+  def test_before_fires_once_even_with_needs
+    log = []
+    cli = build_cli do
+      before { log << :hook }
+      define :env do
+        proc { |_| log << :env }
+      end
+      define :app do
+        needs :env
+        proc { |_| log << :app }
+      end
+    end
+    capture { cli.start(['app']) }
+    assert_equal [:hook, :env, :app], log
+  end
+
+  def test_before_receives_opts
+    captured = nil
+    cli = build_cli do
+      before { |opts| captured = opts }
+      define :x do
+        opt :env, default: 'dev'
+        proc { |_| }
+      end
+    end
+    capture { cli.start(%w[x --env=prod]) }
+    assert_equal 'prod', captured[:env]
+  end
+
+  # ----- hidden (empty-desc) commands --------------------------------
+
+  def test_command_without_desc_is_hidden_from_root_listing
+    cli = build_cli do
+      define :visible do
+        desc 'shown'
+        proc { |_| }
+      end
+      define :env do
+        proc { |_| }
+      end
+    end
+    out, = capture { cli.start(['help']) }
+    assert_includes out, 'visible'
+    refute_includes out, 'mycli env'
+  end
+
+  def test_hidden_command_is_still_dispatchable
+    log = []
+    cli = build_cli do
+      define :env do
+        proc { |_| log << :env }
+      end
+    end
+    capture { cli.start(['env']) }
+    assert_equal [:env], log
+  end
+
+  def test_hidden_command_callable_via_hammer_helper
+    log = []
+    cli = build_cli do
+      define :env do
+        proc { |_| log << :env }
+      end
+      define :run do
+        desc 'run'
+        proc do |_|
+          hammer_env
+          log << :run
+        end
+      end
+    end
+    capture { cli.start(['run']) }
+    assert_equal [:env, :run], log
+  end
+
+  def test_hidden_command_inside_namespace_is_hidden_in_namespace_help
+    cli = build_cli do
+      namespace :db do
+        define :migrate do
+          desc 'shown'
+          proc { |_| }
+        end
+        define :env do
+          proc { |_| }
+        end
+      end
+    end
+    out, = capture { cli.start(['db']) }
+    assert_includes out, 'db:migrate'
+    refute_includes out, 'db:env'
+  end
+
+  # ----- needs (prereqs) ---------------------------------------------
+
+  def test_needs_runs_prereq_before_command
+    log = []
+    cli = build_cli do
+      define :env do
+        proc { |_| log << :env }
+      end
+      define :app do
+        needs :env
+        proc { |_| log << :app }
+      end
+    end
+    capture { cli.start(['app']) }
+    assert_equal [:env, :app], log
+  end
+
+  def test_needs_fires_each_prereq_once_per_invocation
+    log = []
+    cli = build_cli do
+      define :env do
+        proc { |_| log << :env }
+      end
+      define :build do
+        needs :env
+        proc { |_| log << :build }
+      end
+      define :app do
+        needs :env, :build
+        proc { |_| log << :app }
+      end
+    end
+    capture { cli.start(['app']) }
+    assert_equal [:env, :build, :app], log
+  end
+
+  def test_needs_resolves_namespaced_paths
+    log = []
+    cli = build_cli do
+      namespace :db do
+        define :env do
+          proc { |_| log << :db_env }
+        end
+      end
+      define :app do
+        needs 'db:env'
+        proc { |_| log << :app }
+      end
+    end
+    capture { cli.start(['app']) }
+    assert_equal [:db_env, :app], log
+  end
+
+  def test_needs_raises_on_unknown_prereq
+    cli = build_cli do
+      define :app do
+        needs :missing
+        proc { |_| }
+      end
+    end
+    _, err, status = capture_exit { cli.start(['app']) }
+    assert_equal 1, status
+    assert_includes err, "unknown command 'missing'"
+  end
+
+  def test_needs_in_def_style_command
+    log = []
+    cli = Class.new(Hammer) do
+      program_name 'mycli'
+
+      desc 'env'
+      define_method(:env) { |_| log << :env }
+
+      desc 'app'
+      needs :env
+      define_method(:app) { |_| log << :app }
+    end
+    capture { cli.start(['app']) }
+    assert_equal [:env, :app], log
+  end
+
+  def test_needs_does_not_leak_across_define
+    log = []
+    cli = build_cli do
+      define :env do
+        proc { |_| log << :env }
+      end
+      # needs declared but no consuming `def` -> must be cleared
+      needs :env
+      define :first do
+        proc { |_| log << :first }
+      end
+      define :second do
+        proc { |_| log << :second }
+      end
+    end
+    capture { cli.start(['first']) }
+    capture { cli.start(['second']) }
+    assert_equal [:first, :second], log
+  end
+
   def test_block_dsl_alt
     hits = []
     capture do

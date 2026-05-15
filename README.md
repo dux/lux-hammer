@@ -416,6 +416,84 @@ hammer db:migrate -h      # per-command help
 Namespaces nest to any depth. There is no per-level dispatch - the root
 parses the whole colon path and walks the namespace tree.
 
+## Pre-hooks (`before`)
+
+A `before do ... end` block at the root scope or inside a `namespace`
+runs before every command in that scope (and its nested namespaces).
+Hooks fire outer -> inner, then the command's handler:
+
+```ruby
+before { Dotenv.load }                  # runs before every command
+
+namespace :db do
+  before { hammer_env }                 # runs before every db:* command
+  define :migrate do
+    proc { |opts| ... }                 # no boilerplate require inside
+  end
+end
+```
+
+`before` is intentionally not available inside `define` - the proc body
+*is* the command body, just put the setup line at the top of the proc.
+
+Pairs naturally with hidden commands (next section): keep `:env` /
+`:app` setup as undocumented helpers and pull them in via `before`.
+
+## Hidden commands (no `desc`)
+
+A command declared without a `desc` is **hidden from help listings**
+but stays fully dispatchable and `hammer_*`-callable:
+
+```ruby
+define :env do
+  proc { |_| require './config/env' }   # no desc -> hidden
+end
+
+namespace :db do
+  before { hammer_env }                 # call it from a hook
+  define :migrate do
+    desc 'Run migrations'
+    proc { |_| ... }
+  end
+end
+```
+
+`hammer` and `hammer db` won't list `env`, but `hammer env`,
+`hammer_env` from another proc, and `before { hammer_env }` all work.
+
+## Prereqs (`needs`)
+
+Declare commands that must run before this one (Rake-style task deps):
+
+```ruby
+define :env do
+  proc { |_| require './config/env' }     # hidden helper
+end
+
+define :app do
+  needs :env                              # runs `env` first
+  desc 'start the app'
+  proc { |opts| App.start }
+end
+
+define :deploy do
+  needs :env, :build                      # multiple prereqs, in order
+  proc { |opts| ... }
+end
+```
+
+Prereq names are colon paths resolved against the root class - same
+lookup as `hammer_*`. Use `needs 'db:env'` to depend on a namespaced
+command.
+
+Each prereq fires **at most once per top-level invocation**, so if
+`:app` needs `:env` and `:build` also needs `:env`, `:env` still runs
+only once. Prereqs run with default options (no argv passed through).
+
+`needs` vs `before`:
+* `before { hammer_env }` - fires for *every* command in a scope.
+* `needs :env` - declared per command, deduped across the call chain.
+
 ## Command aliases (`alt`)
 
 `alt :short_name` (or several) registers extra names for a command:
@@ -609,11 +687,17 @@ load auto: true              # recursive scan for *_hammer.rb under caller dir
 load 'tasks/db_hammer.rb'    # one file (path relative to caller)
 load 'tasks/*_hammer.rb'     # glob
 load 'a.rb', 'b.rb'          # several explicit paths
+load 'tasks'                 # directory -> recursive scan under it (empty OK)
 ```
 
 Paths resolve relative to the file calling `load`, not cwd. Inside a
 `Hammerfile` that means "relative to the Hammerfile"; inside a class
 body it means "relative to that file".
+
+A directory argument is the explicit-anchor twin of `load auto: true` -
+walks the directory for `*_hammer.rb` with the same skip rules. Useful
+when you want to pull fragments from a known sibling tree without
+making it the caller's dir.
 
 ### What's skipped
 
@@ -657,6 +741,34 @@ Hammer.run(ARGV) do
       say.cyan msg
     end
   end
+end
+```
+
+### `Hammer.run` without a block
+
+If you call `Hammer.run(ARGV)` with no block, it does the obvious thing
+relative to `Dir.pwd`:
+
+* If `./Hammerfile` exists, it's evaluated as the block DSL.
+* Otherwise, `*_hammer.rb` files under `Dir.pwd` are auto-discovered
+  (same walk + skip rules as `load auto: true`).
+
+Either way ARGV is dispatched against the resulting CLI. Useful for a
+one-line custom bin:
+
+```ruby
+#!/usr/bin/env ruby
+require 'lux-hammer'
+Hammer.run ARGV
+```
+
+For more control - e.g. loading a Hammerfile from a fixed path *and*
+auto-discovering from cwd - pass a block and use `load` explicitly:
+
+```ruby
+Hammer.run ARGV do
+  load File.join(MY_ROOT, 'Hammerfile')
+  load Dir.pwd if Dir.pwd != MY_ROOT
 end
 ```
 
