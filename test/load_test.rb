@@ -201,7 +201,7 @@ class LoadTest < Minitest::Test
       write(File.join(dir, 'b_hammer.rb'), <<~RUBY)
         define :deploy do
           proc do |_|
-            hammer_db_migrate
+            hammer 'db:migrate'
             $log << :deployed
           end
         end

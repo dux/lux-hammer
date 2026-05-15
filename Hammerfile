@@ -57,8 +57,8 @@ namespace :gem do
   define :publish do
     desc 'Build and push the gem to RubyGems'
     proc do
-      hammer_gem_version_inc
-      hammer_gem_build
+      hammer 'gem:version:inc'
+      hammer 'gem:build'
 
       file = Dir.glob('lux-hammer-*.gem').sort.last
       error 'no built gem found' unless file

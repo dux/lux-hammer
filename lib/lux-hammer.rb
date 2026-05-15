@@ -17,7 +17,7 @@ require_relative 'hammer/command_builder'
 #       opt :verbose, type: :boolean, alias: :v
 #       opt :env,     type: :string,  default: 'dev'
 #       proc do |opts|
-#         say "building #{opts[:env]} args=#{opts[:args].inspect}", :green
+#         say.green "building #{opts[:env]} args=#{opts[:args].inspect}"
 #       end
 #     end
 #   end
@@ -168,7 +168,7 @@ class Hammer
     def namespace(name, &block)
       sub = Class.new(Hammer)
       # Track the top-level CLI class so cross-invocation
-      # (`hammer_<colon_path>`) from inside a namespaced command dispatches
+      # (`hammer 'ns:cmd'`) from inside a namespaced command dispatches
       # against the full tree, not just the current namespace.
       sub.instance_variable_set(:@root, root)
       # Parent link, so `before` hooks defined further up the namespace
@@ -188,7 +188,7 @@ class Hammer
     #
     #   before { |opts| Dotenv.load }
     #   namespace :db do
-    #     before { hammer_env }
+    #     before { hammer :env }
     #     define :migrate do ... end
     #   end
     def before(&block)
@@ -257,15 +257,41 @@ class Hammer
     # Entry point. Parses ARGV, finds the right command, runs it.
     # Command names are Rake-style colon paths: "build", "db:migrate",
     # "db:users:list".
+    #
+    # Rake-style chained dispatch: `hammer build + deploy + notify`.
+    # A bare `+` argv token separates commands; `++` escapes to a literal
+    # `+` positional. Quoted shell args (`--foo="a + b"`) arrive as a
+    # single token and are not split.
     def start(argv = ARGV)
       # Track prereqs fired during this top-level invocation so a `needs`
       # chain runs each prereq at most once. Nested `start` calls (e.g.
-      # `needs` -> `hammer_*` -> `start`) share the set; the outermost
-      # call owns its lifetime.
+      # `needs` -> `hammer` -> `start`, or a `+` chain) share the set;
+      # the outermost call owns its lifetime.
       outer = Thread.current[:hammer_needs_ran].nil?
       Thread.current[:hammer_needs_ran] ||= {}
       Thread.current[:hammer_before_ran] ||= {}
 
+      split_chain(argv).each { |seg| dispatch(seg) }
+    ensure
+      Thread.current[:hammer_needs_ran] = nil if outer
+      Thread.current[:hammer_before_ran] = nil if outer
+    end
+
+    private
+
+    # Split argv on bare `+` tokens; unescape `++` -> `+` within each
+    # segment. Returns [argv] when no chain operator is present.
+    def split_chain(argv)
+      return [argv] unless argv.include?('+') || argv.include?('++')
+      segs = argv.slice_when { |a, b| a == '+' || b == '+' }
+                 .map { |seg| seg.reject { |t| t == '+' } }
+                 .map { |seg| seg.map { |t| t == '++' ? '+' : t } }
+                 .reject(&:empty?)
+      segs.empty? ? [argv] : segs
+    end
+
+    # Run a single (already-split) command segment.
+    def dispatch(argv)
       argv = argv.dup
       name = argv.shift
 
@@ -283,10 +309,9 @@ class Hammer
       Shell.print_error("unknown command: #{name}")
       print_help
       exit 1
-    ensure
-      Thread.current[:hammer_needs_ran] = nil if outer
-      Thread.current[:hammer_before_ran] = nil if outer
     end
+
+    public
 
     # Find a command by canonical name or alt within this class.
     def find_command(name)
@@ -313,32 +338,27 @@ class Hammer
       klass
     end
 
-    # MyCli.hammer_db_users_list("a", verbose: true) ->
-    # MyCli.start(["db:users:list", "a", "--verbose"])
+    # Programmatic dispatch by name. Useful for scripting and tests.
     #
-    # Useful for scripting and tests. Underscores in the method name map
-    # to colons; underscores in kwarg keys map to dashes in the flag.
-    def method_missing(name, *args, **kwargs, &block)
-      str = name.to_s
-      return super unless str.start_with?('hammer_')
-
-      path = str.sub(/^hammer_/, '').tr('_', ':')
-      argv = [path, *args.map(&:to_s)]
-      # kwarg key mirrors the CLI flag literally:
-      #   verbose: true       -> --verbose
-      #   no_cache: true      -> --no-cache  (just the general rule)
-      #   env: 'prod'         -> --env=prod
-      #   anything: false     -> skipped (no-op; use `no_x: true` to negate)
-      kwargs.each do |k, v|
+    #   MyCli.hammer :build                       -> start(["build"])
+    #   MyCli.hammer 'db:users:list'              -> start(["db:users:list"])
+    #   MyCli.hammer :eval, 'puts 42'             -> start(["eval", "puts 42"])
+    #   MyCli.hammer :build, env: 'prod'          -> start(["build", "--env=prod"])
+    #   MyCli.hammer :build, verbose: true        -> start(["build", "--verbose"])
+    #   MyCli.hammer :build, no_cache: true       -> start(["build", "--no-cache"])
+    #   MyCli.hammer :build, cache: false         -> skipped (no-op)
+    #
+    # Symbols are single-segment names; pass a string with colons for
+    # namespaced paths. Trailing positionals become positional ARGV.
+    # Underscores in option keys become dashes in flags.
+    def hammer(name, *args, **opts)
+      argv = [name.to_s, *args.map(&:to_s)]
+      opts.each do |k, v|
         next if v == false
         flag = "--#{k.to_s.tr('_', '-')}"
         argv << (v == true ? flag : "#{flag}=#{v}")
       end
       start(argv)
-    end
-
-    def respond_to_missing?(name, include_private = false)
-      name.to_s.start_with?('hammer_') || super
     end
 
     # Yield [full_colon_path, Command] for every command in this class
@@ -442,7 +462,7 @@ class Hammer
     def print_command_list(klass, prefix = nil)
       rows = []
       # Commands without a `desc` are hidden from listings but still
-      # dispatchable + `hammer_*`-callable - useful for private helpers
+      # dispatchable + `hammer`-callable - useful for private helpers
       # invoked from `before` hooks or other commands (e.g. `:env`, `:app`).
       klass.each_command(prefix) { |full, c| rows << [full, c] unless c.desc.empty? }
       return if rows.empty?
@@ -530,20 +550,15 @@ class Hammer
   #
   #   define :deploy do
   #     proc do |opts|
-  #       hammer_build
-  #       hammer_db_migrate(pretend: true)
+  #       hammer :build
+  #       hammer 'db:migrate', pretend: true
   #     end
   #   end
-  def method_missing(name, *args, **kwargs, &block)
-    return super unless name.to_s.start_with?('hammer_')
-    # Dispatch from the root class so `hammer_a_b` resolves against the
-    # full colon path "a:b" even when called inside a namespaced command
-    # (where self.class would be the namespace subclass).
-    self.class.root.send(name, *args, **kwargs, &block)
-  end
-
-  def respond_to_missing?(name, include_private = false)
-    name.to_s.start_with?('hammer_') || super
+  #
+  # Dispatches from the root class so colon paths resolve against the
+  # full tree even when called from inside a namespaced command.
+  def hammer(name, *args, **opts)
+    self.class.root.hammer(name, *args, **opts)
   end
 
   # ----- block DSL -----------------------------------------------------
@@ -575,11 +590,27 @@ class Hammer
     path = find_hammerfile(Dir.pwd)
     unless path
       Shell.print_error "no Hammerfile found in #{Dir.pwd} or any parent directory"
+
+      # Heuristic: *.rb files referencing `Hammer.` are likely inline CLIs
+      # the user could promote into a Hammerfile.
+      excludes = %w[.git node_modules tmp vendor coverage dist build]
+                 .map { |d| "--exclude-dir=#{d}" }.join(' ')
+      candidates = `grep -rl --include='*.rb' #{excludes} 'Hammer\\.' . 2>/dev/null`
+                   .lines.map(&:strip).reject(&:empty?)
+      unless candidates.empty?
+        Shell.say "possible CLI implementation(s) - files referencing `Hammer.`:", :yellow
+        candidates.first(10).each { |f| Shell.say "  #{f.sub(%r{\A\./}, '')}" }
+        Shell.say ''
+      end
+
       Shell.say "create one - example:"
+      puts
       Shell.say <<~RUBY
         define :hello do
           desc 'say hello'
-          proc { |opts| say "hello \#{opts[:args].first || 'world'}", :green }
+          proc do |opts|
+            say.green "hello \#{opts[:args].first || 'world'}"
+          end
         end
       RUBY
       exit 1

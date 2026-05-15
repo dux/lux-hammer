@@ -17,7 +17,7 @@ define :deploy do
   opt :force, type: :boolean
 
   proc do |opts|
-    hammer_build(env: 'prod')
+    hammer :build, env: 'prod'
     say "deploying to #{opts[:url]} force=#{opts[:force]}", :yellow
   end
 end

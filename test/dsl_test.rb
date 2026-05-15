@@ -423,7 +423,7 @@ class DslTest < Minitest::Test
     assert_equal %w[active admins], captured
   end
 
-  def test_hammer_method_missing_invokes_command_from_proc
+  def test_hammer_invokes_command_from_proc
     log = []
     cli = build_cli do
       define :build do
@@ -432,7 +432,7 @@ class DslTest < Minitest::Test
       end
       define :deploy do
         proc do |_|
-          hammer_build(env: 'prod')
+          hammer :build, env: 'prod'
           log << [:deploy]
         end
       end
@@ -441,7 +441,7 @@ class DslTest < Minitest::Test
     assert_equal [[:build, 'prod'], [:deploy]], log
   end
 
-  def test_hammer_method_missing_resolves_namespaced_via_underscores
+  def test_hammer_resolves_namespaced_via_colon_string
     log = []
     cli = build_cli do
       namespace :db do
@@ -452,7 +452,7 @@ class DslTest < Minitest::Test
         end
       end
     end
-    capture { cli.hammer_db_users_list('a', 'b') }
+    capture { cli.hammer 'db:users:list', 'a', 'b' }
     assert_equal [%w[a b]], log
   end
 
@@ -465,7 +465,7 @@ class DslTest < Minitest::Test
         end
         define :publish do
           proc do |_|
-            hammer_gem_build
+            hammer 'gem:build'
             log << :publish
           end
         end
@@ -475,7 +475,7 @@ class DslTest < Minitest::Test
     assert_equal [:build, :publish], log
   end
 
-  def test_hammer_kwargs_become_flags
+  def test_hammer_opts_become_flags
     captured = nil
     cli = build_cli do
       define :show do
@@ -484,12 +484,12 @@ class DslTest < Minitest::Test
         proc { |opts| captured = opts }
       end
     end
-    capture { cli.hammer_show(env: 'prod', loud: true) }
+    capture { cli.hammer :show, env: 'prod', loud: true }
     assert_equal 'prod', captured[:env]
     assert_equal true,   captured[:loud]
   end
 
-  def test_hammer_no_prefix_kwarg_emits_negation
+  def test_hammer_no_prefix_opt_emits_negation
     captured = nil
     cli = build_cli do
       define :show do
@@ -497,11 +497,11 @@ class DslTest < Minitest::Test
         proc { |opts| captured = opts[:cache] }
       end
     end
-    capture { cli.hammer_show(no_cache: true) }
+    capture { cli.hammer :show, no_cache: true }
     assert_equal false, captured
   end
 
-  def test_hammer_false_kwarg_is_noop
+  def test_hammer_false_opt_is_noop
     captured = nil
     cli = build_cli do
       define :show do
@@ -509,12 +509,12 @@ class DslTest < Minitest::Test
         proc { |opts| captured = opts[:cache] }
       end
     end
-    capture { cli.hammer_show(cache: false) }
-    # default sticks - false-valued kwargs are skipped entirely
+    capture { cli.hammer :show, cache: false }
+    # default sticks - false-valued opts are skipped entirely
     assert_equal true, captured
   end
 
-  def test_hammer_underscore_in_kwarg_becomes_dash
+  def test_hammer_underscore_in_opt_becomes_dash
     captured = nil
     cli = build_cli do
       define :show do
@@ -522,13 +522,96 @@ class DslTest < Minitest::Test
         proc { |opts| captured = opts[:dry_run] }
       end
     end
-    capture { cli.hammer_show(dry_run: true) }
+    capture { cli.hammer :show, dry_run: true }
     assert_equal true, captured
   end
 
-  def test_non_hammer_method_still_raises
+  def test_hammer_works_with_no_opts
+    log = []
+    cli = build_cli do
+      define :run do
+        proc { |_| log << :ran }
+      end
+    end
+    capture { cli.hammer :run }
+    assert_equal [:ran], log
+  end
+
+  def test_unknown_method_still_raises
     cli = build_cli { define(:x) { proc { |_| } } }
     assert_raises(NoMethodError) { cli.something_else }
+  end
+
+  # ----- chain separator ----------------------------------------------
+
+  def test_chain_separator_runs_each_segment_in_order
+    log = []
+    cli = build_cli do
+      define(:foo) { proc { |_| log << :foo } }
+      define(:bar) { proc { |_| log << :bar } }
+      define(:baz) { proc { |_| log << :baz } }
+    end
+    capture { cli.start(%w[foo + bar + baz]) }
+    assert_equal %i[foo bar baz], log
+  end
+
+  def test_chain_forwards_args_and_flags_per_segment
+    captured = []
+    cli = build_cli do
+      define :build do
+        opt :env, default: 'dev'
+        proc { |opts| captured << [:build, opts[:env], opts[:args]] }
+      end
+      define :ship do
+        opt :force, type: :boolean
+        proc { |opts| captured << [:ship, opts[:force], opts[:args]] }
+      end
+    end
+    capture { cli.start(%w[build prod + ship --force a b]) }
+    assert_equal [[:build, 'prod', []], [:ship, true, %w[a b]]], captured
+  end
+
+  def test_chain_escape_double_plus_yields_literal_plus_arg
+    captured = nil
+    cli = build_cli do
+      define :echo do
+        proc { |opts| captured = opts[:args] }
+      end
+    end
+    capture { cli.start(['echo', '++', 'x']) }
+    assert_equal ['+', 'x'], captured
+  end
+
+  def test_chain_does_not_split_inside_quoted_opt_value
+    # Simulates `hammer echo --foo="a + b"` - shell delivers one token.
+    captured = nil
+    cli = build_cli do
+      define :echo do
+        opt :foo
+        proc { |opts| captured = opts[:foo] }
+      end
+    end
+    capture { cli.start(['echo', '--foo=a + b']) }
+    assert_equal 'a + b', captured
+  end
+
+  def test_chain_needs_dedupes_across_segments
+    log = []
+    cli = build_cli do
+      define :env do
+        proc { |_| log << :env }
+      end
+      define :build do
+        needs :env
+        proc { |_| log << :build }
+      end
+      define :deploy do
+        needs :env
+        proc { |_| log << :deploy }
+      end
+    end
+    capture { cli.start(%w[build + deploy]) }
+    assert_equal %i[env build deploy], log
   end
 
   def test_alt_inside_namespace
@@ -692,7 +775,7 @@ class DslTest < Minitest::Test
         proc { |_| log << :setup }
       end
       namespace :db do
-        before { hammer_setup }
+        before { hammer :setup }
         define :migrate do
           proc { |_| log << :migrate }
         end
@@ -796,7 +879,7 @@ class DslTest < Minitest::Test
       define :run do
         desc 'run'
         proc do |_|
-          hammer_env
+          hammer :env
           log << :run
         end
       end

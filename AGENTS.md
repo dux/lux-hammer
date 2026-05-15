@@ -4,9 +4,12 @@ Conventions and constraints for AI agents working on this gem.
 
 ## What this gem is
 
-A tiny Thor-inspired CLI builder. Users drop a `Hammerfile` in their
-project, run `hammer`, get a structured CLI. Also usable as a library
-(`require 'lux-hammer'`, subclass `Hammer`, call `.start(ARGV)`).
+A tiny CLI builder stitched together from three influences:
+namespaces and prereqs from Rake, typed option parsing from Thor, and
+the `define :name do ... end` block DSL from Joshua. Users drop a
+`Hammerfile` in their project, run `hammer`, get a structured CLI. Also
+usable as a library (`require 'lux-hammer'`, subclass `Hammer`, call
+`.start(ARGV)`).
 
 ## Hard constraints
 
@@ -64,9 +67,9 @@ Inside a `define :name do ... end` block (CommandBuilder context):
   raises `Hammer::Error` ("unknown opt parameter(s)")
 * `alt :other_name` (callable many times)
 * `needs :other_cmd, 'ns:cmd'` - prereqs run before the handler;
-  resolved against root (same lookup as `hammer_*`), deduped per
-  top-level `start` so each prereq fires at most once. Unknown prereq
-  raises `Hammer::Error`.
+  resolved against root (same lookup as `hammer`), deduped per
+  top-level `start` so each prereq fires at most once. Dedupe also
+  spans `+`-chained segments. Unknown prereq raises `Hammer::Error`.
 * `proc do |opts| ... end` - **the last expression**, becomes handler
 
 At class scope (for `def`-style commands):
@@ -96,9 +99,13 @@ At class or `Hammerfile` scope:
 
 Runtime cross-invocation:
 
-* `hammer_<colon_path>(*args, **kwargs)` - underscores in name become
-  colons, underscores in kwarg keys become dashes, boolean kwargs become
-  `--flag`/`--no-flag`
+* `hammer(name, *args, **opts)` - `name` is a symbol for a top-level
+  command (`hammer :build`) or a colon-path string for namespaced ones
+  (`hammer 'db:users:list'`). Trailing positionals become positional
+  ARGV. Kwargs become flags: underscores in keys map to dashes,
+  `true` -> `--flag`, `false` -> skipped (use `no_x: true` to negate),
+  any other value -> `--key=value`. Available both on a class
+  (`MyCli.hammer ...`) and inside a handler proc.
 
 ## Entry points
 
@@ -135,6 +142,14 @@ explicit ADR-level discussion. Keys:
   finds command `c` in the last class.
 * There is **no per-level dispatch**. A namespace is a container, not a
   CLI of its own. Do not reintroduce `subclass.start(remaining_argv)`.
+* `start(argv)` is a two-step pipeline: `split_chain(argv)` (private)
+  splits on bare `+` tokens and unescapes `++` -> `+`, then `dispatch`
+  (private) runs each segment. `start` is the only public entry that
+  also sets up the per-invocation `needs`/`before` dedupe state, so the
+  whole `+` chain shares one dedupe scope. Don't have `dispatch` call
+  back into `start` for sub-segments - that re-triggers chain detection
+  on already-unescaped `+` tokens (bug we fixed; the test
+  `test_chain_escape_double_plus_yields_literal_plus_arg` guards it).
 
 ## Help formatting
 

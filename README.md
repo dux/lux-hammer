@@ -1,9 +1,52 @@
 # hammer
 
-A modern CLI builder for Ruby. The good parts of
-[Rake](https://github.com/ruby/rake) and
-[Thor](https://github.com/rails/thor) without the cruft. Drop a
-`Hammerfile`, run `hammer`, ship.
+The bastard Frankenstein child of Rake, Thor, and Joshua. Sewn
+together from three good ideas, with the rest of each parent left on
+the cutting room floor.
+
+Drop a `Hammerfile`, run `hammer`, ship.
+
+```ruby
+namespace :db do                          # Rake-style colon paths
+  define :migrate do                      # Joshua-style define block
+    desc 'Run pending migrations'
+    opt :pretend, type: :boolean, alias: :p   # Thor-style typed opts
+    proc do |o|
+      say.green "migrating pretend=#{o[:pretend].inspect}"
+    end
+  end
+end
+```
+
+```sh
+$ hammer db:migrate --pretend
+migrating pretend=true
+```
+
+## The bloodline
+
+* **From [Rake](https://github.com/ruby/rake)** we took the *namespace
+  tree* and *task prereqs* - `db:users:list` colon paths, `needs :env`
+  dependencies, the one-file `Hammerfile` at the project root. Left on
+  the table: the build-system DNA (file/mtime tasks) and that
+  `task[a,b,c]` argument syntax nobody enjoys typing into a shell.
+
+* **From [Thor](https://github.com/rails/thor)** we took *real CLI
+  ergonomics* - typed options, defaults, aliases, required flags, and
+  generated `-h` help. Left on the table: the four-constant top-level
+  (`Thor`, `Thor::Group`, `Thor::Shell`, `Thor::Actions`), the
+  parallel method-params-vs-`method_option` arg systems, the
+  `HashWithIndifferentAccess`, and the file generator half of the gem
+  that most CLIs never reach for.
+
+* **From [Joshua](https://github.com/dux/joshua)** we took the
+  *`define :name do ... end` block DSL* - declarative metadata up
+  top, one `proc do |opts| ... end` at the bottom doing the work. No
+  `def`-and-`desc` split, no class required, no boilerplate between
+  "what this command is" and "what it does".
+
+The result: ~400 lines of code, zero runtime dependencies, and a file
+that reads top-to-bottom like a recipe.
 
 ## Install
 
@@ -93,7 +136,7 @@ Rake::Task['db:migrate'].invoke('prod')
 ```
 ```ruby
 # hammer - reads like a normal Ruby method call
-hammer_db_migrate(env: 'prod')
+hammer 'db:migrate', env: 'prod'
 ```
 
 ### Thor: `desc` welded to a method, no aliases, two arg systems
@@ -426,7 +469,7 @@ Hooks fire outer -> inner, then the command's handler:
 before { Dotenv.load }                  # runs before every command
 
 namespace :db do
-  before { hammer_env }                 # runs before every db:* command
+  before { hammer :env }                # runs before every db:* command
   define :migrate do
     proc { |opts| ... }                 # no boilerplate require inside
   end
@@ -442,7 +485,7 @@ Pairs naturally with hidden commands (next section): keep `:env` /
 ## Hidden commands (no `desc`)
 
 A command declared without a `desc` is **hidden from help listings**
-but stays fully dispatchable and `hammer_*`-callable:
+but stays fully dispatchable and `hammer`-callable:
 
 ```ruby
 define :env do
@@ -450,7 +493,7 @@ define :env do
 end
 
 namespace :db do
-  before { hammer_env }                 # call it from a hook
+  before { hammer :env }                # call it from a hook
   define :migrate do
     desc 'Run migrations'
     proc { |_| ... }
@@ -459,7 +502,7 @@ end
 ```
 
 `hammer` and `hammer db` won't list `env`, but `hammer env`,
-`hammer_env` from another proc, and `before { hammer_env }` all work.
+`hammer :env` from another proc, and `before { hammer :env }` all work.
 
 ## Prereqs (`needs`)
 
@@ -483,7 +526,7 @@ end
 ```
 
 Prereq names are colon paths resolved against the root class - same
-lookup as `hammer_*`. Use `needs 'db:env'` to depend on a namespaced
+lookup as `hammer`. Use `needs 'db:env'` to depend on a namespaced
 command.
 
 Each prereq fires **at most once per top-level invocation**, so if
@@ -491,7 +534,7 @@ Each prereq fires **at most once per top-level invocation**, so if
 only once. Prereqs run with default options (no argv passed through).
 
 `needs` vs `before`:
-* `before { hammer_env }` - fires for *every* command in a scope.
+* `before { hammer :env }` - fires for *every* command in a scope.
 * `needs :env` - declared per command, deduped across the call chain.
 
 ## Command aliases (`alt`)
@@ -509,7 +552,7 @@ Then `hammer server`, `hammer s`, and `hammer srv` all dispatch to the
 same command. Alts work inside namespaces too: `alt :m` on `db:migrate`
 makes `db:m` resolve.
 
-## Cross-invocation (`hammer_*`)
+## Cross-invocation (`hammer`)
 
 From inside any command's proc - or from outside via the class - you can
 invoke other commands without re-shelling out:
@@ -517,27 +560,53 @@ invoke other commands without re-shelling out:
 ```ruby
 define :deploy do
   proc do |opts|
-    hammer_build(env: 'prod', verbose: true)
-    hammer_db_migrate
+    hammer :build, env: 'prod', verbose: true
+    hammer 'db:migrate'
     say.green 'deployed'
   end
 end
 ```
 
-The mapping mirrors the CLI literally:
+Signature: `hammer(name, *args, **opts)`. `name` is a symbol for a
+single command or a colon-path string for namespaced commands. Trailing
+positionals become positional ARGV; kwargs become CLI flags:
 
-* `hammer_X_Y_Z` → command path `X:Y:Z` (underscores in the method
-  name become colons)
-* positional args → positional ARGV
+* `hammer :foo` → `foo`
+* `hammer 'db:users:list'` → `db:users:list`
+* `hammer :evaluate, 'puts 42'` → `evaluate "puts 42"` (positional ARGV)
 * `verbose: true` → `--verbose`
-* `no_cache: true` → `--no-cache` (just the same rule - underscores in
-  the kwarg key become dashes)
+* `no_cache: true` → `--no-cache` (underscores in the key become dashes)
 * `dry_run: true` → `--dry-run`
 * `env: 'prod'` → `--env=prod`
 * `anything: false` → skipped (no-op; use `no_x: true` to negate)
 
-`MyCli.hammer_db_users_list("a", verbose: true)` also works at the
+`MyCli.hammer 'db:users:list', verbose: true` also works at the
 class level, useful for tests and scripting.
+
+## Chained dispatch (`+`)
+
+Run several commands in one shot, Rake-style, using a bare `+` token
+as the separator:
+
+```sh
+hammer build + deploy + notify
+hammer build prod -v + db:migrate --pretend + deploy --url=https://x.com
+```
+
+Each segment is parsed and dispatched independently - its own opts,
+its own positional args. `needs` prereqs dedupe across the whole
+chain, so a shared `:env` step runs once even if every chained command
+declares `needs :env`.
+
+A `+` only acts as a separator when it arrives as its own argv token.
+Quoting protects it: `--foo="a + b"` reaches the parser as a single
+token and is left alone. To pass a literal `+` as a positional, double
+it - `++` unescapes to a single `+`:
+
+```sh
+hammer echo ++ x          # echo gets positional args ["+", "x"]
+hammer echo + bar         # runs echo, then runs bar
+```
 
 ## Shell helpers
 
@@ -673,7 +742,7 @@ end
 define :deploy do
   desc 'Deploy to prod'
   proc do |_|
-    hammer_db_migrate        # cross-file invocation just works
+    hammer 'db:migrate'      # cross-file invocation just works
     say.cyan 'deployed'
   end
 end
@@ -798,7 +867,7 @@ define :deploy do
   opt :force, type: :boolean
 
   proc do |opts|
-    hammer_build(env: 'prod')
+    hammer :build, env: 'prod'
     exit 0 unless yes? "deploy to #{opts[:url]}?" unless opts[:force]
     say.yellow "deploying to #{opts[:url]}"
   end
@@ -909,7 +978,7 @@ class MyCli < Hammer
 end
 
 MyCli.start(ARGV)         # or:
-MyCli.hammer_greet('dino', loud: true)
+MyCli.hammer :greet, loud: true
 ```
 
 ## Development
@@ -941,7 +1010,7 @@ few small things that have been bugging me about both for years.
 | Opts container | `Thor::CoreExt::HashWithIndifferentAccess` | plain `Hash` with symbol keys |
 | Positional args | method positional params + `method_option`, two parallel systems | declared-order opts fill from positional, single system |
 | Sub-namespaces | `register SubClass, 'name', '...'` (inheritance ceremony) | `namespace :name do ... end` (no classes needed) |
-| Cross-invoke | `invoke 'name', [args], opts` | `hammer_name(*args, **kwargs)` (looks like a method call) |
+| Cross-invoke | `invoke 'name', [args], opts` | `hammer :name, **opts` (looks like a method call) |
 | Inline CLI | class only | class DSL **or** `Hammer.run do ... end` block DSL **or** a `Hammerfile` |
 
 **What hammer does better and why:**
@@ -955,7 +1024,7 @@ few small things that have been bugging me about both for years.
   you into method params (which then clash with options) or makes you read
   `ARGV` yourself. Hammer just says: opts you declared come first, leftover
   goes to `opts[:args]`.
-* **Cross-invocation reads as Ruby.** `hammer_db_migrate(env: 'prod')`
+* **Cross-invocation reads as Ruby.** `hammer 'db:migrate', env: 'prod'`
   looks like a method call. Thor's `invoke('db:migrate', [], env: 'prod')`
   always feels like reflection.
 * **No generator complexity.** Thor's other half is file scaffolding and
@@ -971,8 +1040,8 @@ few small things that have been bugging me about both for years.
 | Namespacing | colon paths (`db:migrate`) | colon paths (`db:migrate`) - parity |
 | Per-task options | `task[a,b,c]` positional only | typed `opt`s with flags, aliases, defaults, required |
 | Help | `rake -T` (plain list) | bare `hammer` lists everything grouped by namespace; `hammer X -h` for per-command help with examples and defaults |
-| Cross-invoke | `Rake::Task['db:migrate'].invoke` | `hammer_db_migrate` |
-| Prerequisites | `task :build => [:clean, :compile]` (declarative DAG) | explicit - call `hammer_clean; hammer_compile` in the proc |
+| Cross-invoke | `Rake::Task['db:migrate'].invoke` | `hammer 'db:migrate'` |
+| Prerequisites | `task :build => [:clean, :compile]` (declarative DAG) | explicit - call `hammer :clean; hammer :compile` in the proc |
 | File tasks | yes (mtime-based) | no |
 | Aliases | none (workarounds via re-defined tasks) | `alt :short_name` |
 | Split across files | `import 'other.rake'` | `load auto: true` (or explicit paths/globs) |
