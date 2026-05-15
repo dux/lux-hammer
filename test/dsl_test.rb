@@ -248,6 +248,34 @@ class DslTest < Minitest::Test
     assert_includes out, 'mycli build -v'
   end
 
+  def test_multi_line_desc_lists_only_brief
+    cli = build_cli do
+      define :build do
+        desc "Build the project\nextra detail not shown in listing"
+        proc { |_| }
+      end
+    end
+    out, = capture { cli.start(['help']) }
+    assert_includes out, '# Build the project'
+    refute_includes out, 'extra detail not shown in listing'
+  end
+
+  def test_multi_line_desc_shows_full_in_command_help
+    cli = build_cli do
+      define :build do
+        desc <<~TEXT
+          Build the project.
+
+          Compiles assets and produces a tarball under tmp/.
+        TEXT
+        proc { |_| }
+      end
+    end
+    out, = capture { cli.start(%w[help build]) }
+    assert_includes out, '  Build the project.'
+    assert_includes out, '  Compiles assets and produces a tarball under tmp/.'
+  end
+
   def test_help_via_dash_h
     cli = build_cli { define(:x) { desc 'X'; proc { |_| } } }
     out, = capture { cli.start(['-h']) }
@@ -547,6 +575,59 @@ class DslTest < Minitest::Test
     end
     assert_equal true, captured[:loud]
     assert_equal ['dino'], captured[:args]
+  end
+
+  # ----- default program_name -----------------------------------------
+
+  def with_program_name(value)
+    original = $PROGRAM_NAME
+    $PROGRAM_NAME = value
+    yield
+  ensure
+    $PROGRAM_NAME = original
+  end
+
+  def test_default_program_name_is_basename_when_bin_is_in_path
+    with_program_name('lux') do
+      cli = Class.new(Hammer)
+      assert_equal 'lux', cli.program_name
+    end
+  end
+
+  def test_default_program_name_is_basename_when_bin_is_outside_cwd
+    with_program_name('/usr/local/bin/lux') do
+      cli = Class.new(Hammer)
+      assert_equal 'lux', cli.program_name
+    end
+  end
+
+  def test_default_program_name_is_relative_when_bin_is_inside_cwd
+    Dir.mktmpdir do |dir|
+      bin = File.join(dir, 'bin', 'foo')
+      FileUtils.mkdir_p(File.dirname(bin))
+      File.write(bin, '')
+      Dir.chdir(dir) do
+        with_program_name('bin/foo') do
+          cli = Class.new(Hammer)
+          assert_equal 'bin/foo', cli.program_name
+        end
+        with_program_name('./bin/foo') do
+          cli = Class.new(Hammer)
+          assert_equal 'bin/foo', cli.program_name
+        end
+        with_program_name(bin) do
+          cli = Class.new(Hammer)
+          assert_equal 'bin/foo', cli.program_name
+        end
+      end
+    end
+  end
+
+  def test_explicit_program_name_overrides_default
+    with_program_name('bin/foo') do
+      cli = Class.new(Hammer) { program_name 'override' }
+      assert_equal 'override', cli.program_name
+    end
   end
 
   def test_block_dsl_alt

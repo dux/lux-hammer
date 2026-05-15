@@ -1,20 +1,9 @@
-# lux-hammer
+# hammer
 
-A tiny CLI builder for Ruby. Drop a `Hammerfile` in your project,
-run `hammer`, get a structured CLI with colon-namespaced commands,
-typed options, auto-generated help, and color output. Think Rake, but
-for arbitrary CLIs rather than build tasks.
-
-* **One root constant** (`Hammer`) - no namespace pollution
-* **Two equivalent DSLs**: `define :name do ... end` blocks or
-  classic `desc` + `def name(opts)`
-* **Typed options** with auto-cast, defaults, required, and aliases
-* **Positional args fill opts** in declaration order
-* **Rake-style namespaces**: `hammer db:users:list`
-* **Cross-invocation**: call any command as `hammer_db_migrate(env: 'prod')`
-* **Auto help**: `hammer`, `hammer help`, `hammer help COMMAND`, `-h`
-* **Color helpers**: `say`, `error` (controlled exit), `ask`, `yes?`
-* Zero runtime dependencies, ~400 lines
+A modern CLI builder for Ruby. The good parts of
+[Rake](https://github.com/ruby/rake) and
+[Thor](https://github.com/rails/thor) without the cruft. Drop a
+`Hammerfile`, run `hammer`, ship.
 
 ## Install
 
@@ -59,6 +48,85 @@ Commands:
 
 That's it. `hammer` walks up from your current directory looking for a
 `Hammerfile`, evaluates it, and dispatches.
+
+## Why hammer (the short pitch)
+
+A handful of papercuts from Rake and Thor that hammer just doesn't have.
+
+### Rake task arguments are awkward
+
+Rake forces you into `task[arg1,arg2]` syntax with no types, no flags,
+no help, and shell-hostile brackets:
+
+```ruby
+# Rakefile
+task :greet, [:name, :loud] do |_, args|
+  puts args[:loud] == 'true' ? "HELLO #{args[:name].upcase}" : "hello #{args[:name]}"
+end
+```
+```sh
+$ rake 'greet[dino,true]'    # quotes required - zsh/bash treat [] as globs
+```
+
+Hammer takes typed options, positional fill, and any common flag form:
+
+```ruby
+# Hammerfile
+define :greet do
+  desc 'Say hello'
+  opt :name
+  opt :loud, type: :boolean, alias: :l
+  proc { |o| say o[:loud] ? "HELLO #{o[:name].upcase}" : "hello #{o[:name]}" }
+end
+```
+```sh
+$ hammer greet dino -l              # positional fills :name, -l sets :loud
+$ hammer greet --name=dino --loud   # or be explicit
+$ hammer greet -h                   # real help, with defaults and examples
+```
+
+### Invoking another task
+
+```ruby
+# Rake
+Rake::Task['db:migrate'].invoke('prod')
+```
+```ruby
+# hammer - reads like a normal Ruby method call
+hammer_db_migrate(env: 'prod')
+```
+
+### Thor: `desc` welded to a method, no aliases, two arg systems
+
+Thor splits arguments between method parameters and `method_option`,
+needs a usage string repeated in `desc`, and has no first-class command
+aliases (you reach for `map`):
+
+```ruby
+# Thor
+class MyCli < Thor
+  desc 'greet NAME', 'Say hello'              # usage repeated by hand
+  method_option :loud, type: :boolean, aliases: '-l'
+  def greet(name)                             # name is a method param...
+    options[:loud] ? puts(name.upcase) : puts(name)   # ...options live elsewhere
+  end
+  map 'g' => :greet                           # aliases bolted on
+end
+```
+
+```ruby
+# hammer - one arg system, real aliases, no usage string to maintain
+define :greet do
+  desc 'Say hello'
+  alt :g
+  opt :name
+  opt :loud, type: :boolean, alias: :l
+  proc { |o| say o[:loud] ? o[:name].upcase : o[:name] }
+end
+```
+
+Usage is generated from your `opt`s, `alt :g` registers a real alias,
+and there's one place to look for everything the command takes.
 
 ## The two styles
 
@@ -109,6 +177,22 @@ regular method, never a command. Methods with arity 0 are called
 without opts; methods that take an argument receive the opts hash.
 
 Both styles can coexist in the same class.
+
+## Program name
+
+`program_name 'foo'` (alias `program 'foo'`) sets the name shown in
+help/usage output. It is **optional**. When omitted, the default is:
+
+* the invocation path **relative to cwd** if the script lives inside
+  the current working directory (e.g. `bin/foo` when invoked from the
+  project root as `./bin/foo` or `bin/foo`), or
+* the **basename** of `$PROGRAM_NAME` otherwise (e.g. `lux` for a
+  globally installed bin in `PATH`).
+
+So a project-local wrapper at `bin/foo` shows up in help as
+`Usage: bin/foo COMMAND [ARGS]`, while the same library invoked
+through a globally installed `lux` shim shows `Usage: lux ...`. Set
+`program 'whatever'` explicitly to override.
 
 ## Options (`opt`)
 
@@ -343,8 +427,8 @@ Then:
 ```
 hammer db:migrate
 hammer db:users:list
-hammer help db            # list everything under the db namespace
-hammer db                 # bare namespace - same as `help db`
+hammer db                 # bare namespace lists everything under it
+hammer db:migrate -h      # per-command help
 ```
 
 Namespaces nest to any depth. There is no per-level dispatch - the root
@@ -535,7 +619,7 @@ migrating 3 pretend=true
 $ hammer db:users:create --email=dino@example.com --admin
 create dino@example.com admin=true
 
-$ hammer help db
+$ hammer db                  # bare namespace shows its contents
 Usage: demo db:COMMAND [ARGS]
 
 Commands:
@@ -545,7 +629,7 @@ users:
   demo db:users:list        # List users
   demo db:users:create      # Create a user
 
-$ hammer help db:users:create
+$ hammer db:users:create -h
 Usage: demo db:users:create EMAIL [OPTIONS]
   Create a user
 
@@ -612,9 +696,9 @@ few small things that have been bugging me about both for years.
 
 **What hammer does better and why:**
 
-* **One root constant.** `Thor` polluting the global namespace has caused real
-  conflicts (e.g. with Rails' `Bundler::Thor` reload). `Hammer` is one name
-  for everything.
+* **One root constant.** Thor exposes `Thor`, `Thor::Group`, `Thor::Shell`,
+  `Thor::Actions` at the top level - Bundler had to vendor its own copy at
+  `Bundler::Thor` to avoid clashes. Hammer is just `Hammer`.
 * **The opts hash is just a Hash.** Symbol keys, always. No magic accessor
   object to remember, no string-vs-symbol confusion, no method_missing.
 * **Positional args fill opts in declaration order.** Thor either forces
@@ -636,9 +720,9 @@ few small things that have been bugging me about both for years.
 | Task file | `Rakefile` | `Hammerfile` |
 | Namespacing | colon paths (`db:migrate`) | colon paths (`db:migrate`) - parity |
 | Per-task options | `task[a,b,c]` positional only | typed `opt`s with flags, aliases, defaults, required |
-| Help | `rake -T` (plain list) | `hammer help`, grouped by namespace, per-command help with examples and defaults |
+| Help | `rake -T` (plain list) | bare `hammer` lists everything grouped by namespace; `hammer X -h` for per-command help with examples and defaults |
 | Cross-invoke | `Rake::Task['db:migrate'].invoke` | `hammer_db_migrate` |
-| Prerequisites | `task :build => [:clean, :compile]` (DAG with dedup) | none - call `hammer_clean; hammer_compile` explicitly |
+| Prerequisites | `task :build => [:clean, :compile]` (declarative DAG) | explicit - call `hammer_clean; hammer_compile` in the proc |
 | File tasks | yes (mtime-based) | no |
 | Aliases | none (workarounds via re-defined tasks) | `alt :short_name` |
 
@@ -648,7 +732,7 @@ few small things that have been bugging me about both for years.
   long-standing wart - no types, no validation, awkward to type in the
   shell, no help. `opt :port, type: :integer, default: 3000` is what
   every CLI library has converged on.
-* **Help is actually useful.** `hammer help build` shows usage, options
+* **Help is actually useful.** `hammer build -h` shows usage, options
   with defaults and required markers, and examples. `rake -T` is just a
   list of one-liners.
 * **Command aliases.** `alt :m` for `db:migrate` is two characters of
@@ -659,12 +743,10 @@ few small things that have been bugging me about both for years.
 
 **What Rake does better:**
 
-* **Prerequisite DAGs with dedup.** If `deploy` depends on `build` and
-  `migrate`, both of which depend on `compile`, Rake runs `compile`
-  once. Hammer's `hammer_*` calls don't dedup. For build pipelines this
-  matters; for general CLIs it usually doesn't.
-* **File tasks.** Rake's `file 'foo.o' => 'foo.c' do ... end` skips work
-  based on mtime. Hammer doesn't have this and isn't going to.
+* **File tasks with mtime tracking.** `file 'foo.o' => 'foo.c' do ... end`
+  skips work when the target is newer than the source. Genuine win for
+  compilation pipelines. Hammer doesn't have this and isn't going to -
+  it's not what a CLI builder is for.
 
 ### When to pick which
 

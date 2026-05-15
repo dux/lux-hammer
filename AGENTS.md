@@ -18,8 +18,11 @@ project, run `hammer`, get a structured CLI. Also usable as a library
   dependencies require explicit user approval.
 * **Ruby >= 2.7**. Do not use language features introduced after 2.7
   without flagging.
-* **Single-line description style**. `desc` takes one line. Multi-line
-  descriptions are intentionally not supported.
+* **`desc` is single-arg, multi-line allowed**. The argument is one
+  string; it may contain newlines. The first line is the brief shown in
+  command listings, the full string renders (indented) in per-command
+  help. Trailing whitespace is stripped so heredocs work cleanly. `desc`
+  is never multi-arg - that form was tried and reverted.
 * **The `proc` is the trailing expression of a `define` block.** Do not
   introduce `run do ... end` or similar - the user explicitly chose this.
 
@@ -42,7 +45,8 @@ examples/block_dsl.rb       # Reference block DSL usage
 
 Inside a `define :name do ... end` block (CommandBuilder context):
 
-* `desc 'one-line description'`
+* `desc 'short description'` (string may contain `\n`; first line is
+  the brief shown in listings, full text renders in per-command help)
 * `example 'invocation example'` (callable many times)
 * `opt :name, type:, default:, alias:, desc:, req:` - any other kwarg
   raises `Hammer::Error` ("unknown opt parameter(s)")
@@ -59,7 +63,10 @@ At class scope (for `def`-style commands):
 
 At class or `Hammerfile` scope:
 
-* `program_name 'foo'` / `program 'foo'`
+* `program_name 'foo'` / `program 'foo'` - optional. Default is the
+  invocation path relative to cwd if the bin lives inside cwd
+  (e.g. `bin/foo` when invoked from the project root), otherwise the
+  basename of `$PROGRAM_NAME` (e.g. `lux` for a global bin in PATH).
 * `define :name do ... end`
 * `namespace :name do ... end`
 
@@ -89,7 +96,8 @@ explicit ADR-level discussion. Keys:
 
 ## Help formatting
 
-* `hammer` with no args = `hammer help` = top-level help.
+* `hammer` (no args), `hammer -h`, and `hammer --help` all print top-level help.
+* `hammer COMMAND -h` / `--help` prints per-command help (reserved on every command).
 * Commands listed flat with colon paths, grouped by top-level namespace.
 * Bare namespace (`hammer db`) prints the same listing scoped to that
   namespace.
@@ -153,5 +161,5 @@ fix a bug, write the failing test first.
 ## When in doubt
 
 * Read `lib/lux-hammer.rb` top-to-bottom. It's the whole DSL surface.
-* Run the example: `cd examples && ruby -I../lib ../bin/hammer help`
+* Run the example: `cd examples && ruby -I../lib ../bin/hammer`
 * Check `test/dsl_test.rb` for the canonical behavior of each feature.

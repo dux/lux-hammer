@@ -65,7 +65,7 @@ class Hammer
     #     end
     #   end
 
-    def desc(text)       ; @pending_desc = text.to_s end
+    def desc(text)       ; @pending_desc = text.to_s.rstrip end
     def example(text)    ; @pending_examples << text end
     def opt(name, **o)   ; @pending_options << Option.new(name, **o) end
     def alt(*names)      ; @pending_alts.concat(names) end
@@ -94,7 +94,22 @@ class Hammer
 
     def program_name(name = nil)
       @program_name = name if name
-      @program_name || File.basename($PROGRAM_NAME)
+      @program_name || default_program_name
+    end
+
+    # Default shown in help/usage when `program_name` is not set:
+    # the invocation path relative to cwd if the script lives inside it
+    # (e.g. `bin/foo` when invoked from the project root), otherwise the
+    # basename (e.g. `lux` for a globally installed bin in PATH).
+    def default_program_name
+      prog = $PROGRAM_NAME
+      return File.basename(prog) unless prog.include?('/')
+      # Resolve symlinks on both sides so e.g. macOS `/tmp` -> `/private/tmp`
+      # doesn't cause a false miss when comparing prefixes.
+      abs = File.realpath(prog) rescue File.expand_path(prog)
+      cwd = File.realpath(Dir.pwd) rescue Dir.pwd
+      return abs[(cwd.length + 1)..] if abs.start_with?("#{cwd}/")
+      File.basename(prog)
     end
 
     # Define a command. Block runs in a CommandBuilder context and must
@@ -331,7 +346,7 @@ class Hammer
     def emit_rows(rows, width)
       rows.each do |full, c|
         label = label_for(full, c)
-        Shell.say "  #{program_name} #{label.ljust(width)}  # #{c.desc}"
+        Shell.say "  #{program_name} #{label.ljust(width)}  # #{c.brief}"
       end
     end
 
@@ -367,7 +382,10 @@ class Hammer
     def print_command_help(cmd, full = nil)
       full ||= cmd.name
       Shell.say "Usage: #{program_name} #{full}#{usage_signature(cmd)}", :cyan, bold: true
-      Shell.say "  #{cmd.desc}" unless cmd.desc.empty?
+      cmd.desc.each_line do |line|
+        stripped = line.chomp
+        Shell.say(stripped.empty? ? '' : "  #{stripped}")
+      end unless cmd.desc.empty?
       Shell.say "  alias: #{cmd.alts.join(', ')}" unless cmd.alts.empty?
       unless cmd.options.empty?
         Shell.say
@@ -428,12 +446,14 @@ class Hammer
       exit 1
     end
 
+    klass = Class.new(Hammer)
+    # Resolve before chdir so paths like `bin/foo` stay relative to the
+    # cwd the user actually invoked from.
+    klass.program_name(klass.default_program_name)
+
     # chdir into the Hammerfile's directory for the entire run so commands
     # operate on the project root (Rake-style).
     Dir.chdir(File.dirname(path))
-
-    klass = Class.new(Hammer)
-    klass.program_name(File.basename($PROGRAM_NAME))
     Builder.new(klass).instance_eval(File.read(path), path)
     klass.start(argv)
   end
@@ -476,7 +496,7 @@ class Hammer
     end
 
     def desc(text)
-      @cmd.instance_variable_set(:@desc, text.to_s)
+      @cmd.instance_variable_set(:@desc, text.to_s.rstrip)
     end
 
     def example(text)

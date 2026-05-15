@@ -6,11 +6,16 @@ class Hammer
 
     def initialize(name:, desc: '', handler: nil)
       @name     = name.to_s
-      @desc     = desc.to_s
+      @desc     = desc.to_s.rstrip
       @handler  = handler
       @options  = []
       @examples = []
       @alts     = []
+    end
+
+    # First line of `desc`, used in the flat command listing.
+    def brief
+      @desc.lines.first&.chomp.to_s
     end
 
     def add_option(option)
