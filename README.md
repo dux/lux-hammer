@@ -495,6 +495,78 @@ sh 'bundle install'            # echoes "$ bundle install", aborts on non-zero
 Colors are auto-disabled when stdout isn't a TTY, when `NO_COLOR` is
 set, or programmatically via `Hammer::Shell.color!(false)`.
 
+## Splitting across files (`load`)
+
+Once a `Hammerfile` grows past a screen or two, split it. Drop fragments
+in any file ending in `_hammer.rb` and pull them in with `load`:
+
+```ruby
+# Hammerfile
+program 'demo'
+load auto: true              # recursive scan for *_hammer.rb from here
+```
+
+```ruby
+# tasks/db_hammer.rb
+namespace :db do
+  define :migrate do
+    desc 'Run pending migrations'
+    opt :pretend, type: :boolean, alias: :p
+    proc { |o| say "migrating pretend=#{o[:pretend].inspect}", :green }
+  end
+end
+```
+
+```ruby
+# tasks/deploy_hammer.rb
+define :deploy do
+  desc 'Deploy to prod'
+  proc do |_|
+    hammer_db_migrate        # cross-file invocation just works
+    say 'deployed', :cyan
+  end
+end
+```
+
+### Call shapes
+
+```ruby
+load                         # same as load auto: true
+load auto: true              # recursive scan for *_hammer.rb under caller dir
+load 'tasks/db_hammer.rb'    # one file (path relative to caller)
+load 'tasks/*_hammer.rb'     # glob
+load 'a.rb', 'b.rb'          # several explicit paths
+```
+
+Paths resolve relative to the file calling `load`, not cwd. Inside a
+`Hammerfile` that means "relative to the Hammerfile"; inside a class
+body it means "relative to that file".
+
+### What's skipped
+
+Auto-discovery walks recursively but skips `.git`, `.bundle`,
+`node_modules`, `tmp`, `vendor`, `dist`, `build`, `coverage`, and any
+hidden directory.
+
+### Fragment shape
+
+A `*_hammer.rb` file is a **block-DSL fragment** - same surface as a
+`Hammerfile`: `define`, `namespace`, and nested `load`. Not a class
+re-open. If you want to extend a `Hammer` subclass in the classic
+`desc` + `def` style across files, use plain `require_relative`.
+
+### Dedup and re-entrancy
+
+Each file loads at most once per target class, keyed by absolute path.
+A fragment can `load` other fragments without worrying about cycles.
+
+### Errors
+
+If a fragment raises during load, the error surfaces as
+`failed loading <path>: <message>` so you know which file blew up.
+An explicit pattern (`load 'x_hammer.rb'`, `load 'tasks/*.rb'`) that
+matches zero files raises; auto-mode finding nothing is silent.
+
 ## Block DSL outside a Hammerfile
 
 Same shape as a Hammerfile, just inline:
@@ -725,6 +797,7 @@ few small things that have been bugging me about both for years.
 | Prerequisites | `task :build => [:clean, :compile]` (declarative DAG) | explicit - call `hammer_clean; hammer_compile` in the proc |
 | File tasks | yes (mtime-based) | no |
 | Aliases | none (workarounds via re-defined tasks) | `alt :short_name` |
+| Split across files | `import 'other.rake'` | `load auto: true` (or explicit paths/globs) |
 
 **What hammer does better and why:**
 

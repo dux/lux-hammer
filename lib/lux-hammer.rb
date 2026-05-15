@@ -2,6 +2,9 @@ require_relative 'hammer/shell'
 require_relative 'hammer/option'
 require_relative 'hammer/parser'
 require_relative 'hammer/command'
+require_relative 'hammer/loader'
+require_relative 'hammer/builder'
+require_relative 'hammer/command_builder'
 
 # Thor-inspired tiny CLI builder.
 #
@@ -171,6 +174,31 @@ class Hammer
 
     def namespaces
       @namespaces ||= {}
+    end
+
+    # Per-target Loader instance. Owns the dedup cache, so re-entrant
+    # `load` from inside a fragment is safe and idempotent.
+    def loader
+      @loader ||= Loader.new(self)
+    end
+
+    # Load Hammerfile fragments and register their commands on this
+    # class. Rake-style: split a CLI across multiple files.
+    #
+    #   load                        # auto-discover *_hammer.rb under caller dir
+    #   load auto: true             # same
+    #   load 'tasks/db_hammer.rb'   # one file
+    #   load 'tasks/*_hammer.rb'    # glob
+    #
+    # Paths resolve relative to the file calling `load`. See
+    # `Hammer::Loader` for the full implementation.
+    def load(*paths, **kwargs)
+      if self == Hammer
+        raise Error, 'use `load` from inside a Hammerfile / Hammer.run block / Hammer subclass body, ' \
+                     'or call SubClass.load - Hammer.load itself has no target'
+      end
+      anchor = Loader.caller_anchor(caller_locations(1, 1).first)
+      loader.load(anchor, paths, kwargs)
     end
 
     # Entry point. Parses ARGV, finds the right command, runs it.
@@ -470,45 +498,4 @@ class Hammer
     end
   end
 
-  class Builder
-    def initialize(klass)
-      @klass = klass
-    end
-
-    def program(name)
-      @klass.program_name(name)
-    end
-
-    def define(name, &block)
-      @klass.define(name, &block)
-    end
-
-    def namespace(name, &block)
-      @klass.namespace(name, &block)
-    end
-  end
-
-  # Builder used inside `define :name do ... end`. Exposes desc/example/opt.
-  # The block's return value (a `proc do |opts| ... end`) becomes the handler.
-  class CommandBuilder
-    def initialize(cmd)
-      @cmd = cmd
-    end
-
-    def desc(text)
-      @cmd.instance_variable_set(:@desc, text.to_s.rstrip)
-    end
-
-    def example(text)
-      @cmd.add_example(text)
-    end
-
-    def opt(name, **opts)
-      @cmd.add_option(Option.new(name, **opts))
-    end
-
-    def alt(*names)
-      names.each { |n| @cmd.add_alt(n) }
-    end
-  end
 end

@@ -12,8 +12,8 @@ project, run `hammer`, get a structured CLI. Also usable as a library
 
 * **One root constant**: `Hammer`. Never pollute `Object` or introduce
   another top-level constant. Sub-types live as `Hammer::Shell`,
-  `Hammer::Option`, `Hammer::Parser`, `Hammer::Command`, `Hammer::Builder`,
-  `Hammer::CommandBuilder`.
+  `Hammer::Option`, `Hammer::Parser`, `Hammer::Command`,
+  `Hammer::Loader`, `Hammer::Builder`, `Hammer::CommandBuilder`.
 * **Zero runtime dependencies**. The gem must work with stdlib only. New
   dependencies require explicit user approval.
 * **Ruby >= 2.7**. Do not use language features introduced after 2.7
@@ -30,12 +30,21 @@ project, run `hammer`, get a structured CLI. Also usable as a library
 
 ```
 bin/hammer                  # CLI entry point
-lib/lux-hammer.rb           # Entry - defines class Hammer
+lib/lux-hammer.rb           # Entry - defines class Hammer and its DSL
 lib/hammer/shell.rb         # ANSI/IO helpers
 lib/hammer/option.rb        # One option definition
 lib/hammer/parser.rb        # ARGV -> [positional, opts_hash]
 lib/hammer/command.rb       # One registered command (name, opts, alts, handler)
-test/*_test.rb              # Minitest, one file per subject
+lib/hammer/loader.rb        # `*_hammer.rb` fragment loader (auto/glob/file)
+lib/hammer/builder.rb       # Block-DSL context (Hammerfile / Hammer.run)
+lib/hammer/command_builder.rb # `define :name do ... end` context
+test/dsl_test.rb            # DSL surface, dispatch, help formatting
+test/load_test.rb           # `load` / `*_hammer.rb` fragment loader
+test/parser_test.rb         # ARGV parsing edge cases
+test/option_test.rb         # Option declaration / casting
+test/command_test.rb        # Command data type
+test/shell_test.rb          # ANSI / IO helpers
+test/cli_test.rb            # `hammer` binary end-to-end
 examples/Hammerfile         # Reference Hammerfile
 examples/class_dsl.rb       # Reference class DSL usage
 examples/block_dsl.rb       # Reference block DSL usage
@@ -69,6 +78,14 @@ At class or `Hammerfile` scope:
   basename of `$PROGRAM_NAME` (e.g. `lux` for a global bin in PATH).
 * `define :name do ... end`
 * `namespace :name do ... end`
+* `load` / `load auto: true` / `load 'path/file.rb'` / `load 'glob/*.rb'` -
+  pull in Hammerfile fragments from `*_hammer.rb` files. Paths resolve
+  relative to the caller's file. Fragments are de-duplicated per
+  target class, so re-entrant `load` is safe. Skipped dirs:
+  `.git`, `.bundle`, `node_modules`, `tmp`, `vendor`, `dist`, `build`,
+  `coverage`, plus any hidden dir. Fragment shape is the block DSL
+  (`define`, `namespace`); class-DSL fragments belong in plain `.rb`
+  files loaded with `require_relative`.
 
 Runtime cross-invocation:
 
@@ -157,9 +174,13 @@ fix a bug, write the failing test first.
   - that was reverted intentionally).
 * Don't add a `subcommand 'name', SomeClass` form - it was replaced by
   `namespace :name do ... end` intentionally.
+* Don't auto-namespace fragments by filename (e.g. `db_hammer.rb` does
+  not implicitly wrap in `namespace :db do ... end`). Be explicit, as
+  Rake's `import` is. If a fragment wants a namespace, it writes it.
 
 ## When in doubt
 
 * Read `lib/lux-hammer.rb` top-to-bottom. It's the whole DSL surface.
 * Run the example: `cd examples && ruby -I../lib ../bin/hammer`
 * Check `test/dsl_test.rb` for the canonical behavior of each feature.
+* Check `test/load_test.rb` for `load` / fragment loader behavior.
