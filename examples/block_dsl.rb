@@ -3,8 +3,6 @@ $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'lux-hammer'
 
 Hammer.run(ARGV) do
-  program 'inline'
-
   define :hello do
     desc    'Greet someone'
     example 'hello'

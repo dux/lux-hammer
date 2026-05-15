@@ -1,5 +1,3 @@
-program 'demo'
-
 define :build do
   desc    'Build the project'
   example 'build prod -v'

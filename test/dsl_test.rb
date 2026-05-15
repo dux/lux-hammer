@@ -7,7 +7,6 @@ class DslTest < Minitest::Test
 
   def build_cli(&block)
     Class.new(Hammer) do
-      program_name 'mycli'
       instance_eval(&block)
     end
   end
@@ -15,7 +14,6 @@ class DslTest < Minitest::Test
   def test_def_style_command
     captured = nil
     cli = Class.new(Hammer) do
-      program_name 'mycli'
       desc 'Build'
       opt :env, default: 'dev'
       define_method(:build) { |opts| captured = opts }
@@ -26,7 +24,6 @@ class DslTest < Minitest::Test
 
   def test_def_style_alt_and_example
     cli = Class.new(Hammer) do
-      program_name 'mycli'
       desc 'Server'
       example 'server -p 4000'
       alt :s
@@ -40,7 +37,6 @@ class DslTest < Minitest::Test
   def test_def_with_no_args_is_called_without_opts
     log = []
     cli = Class.new(Hammer) do
-      program_name 'mycli'
       desc 'Ping'
       define_method(:ping) { log << :pong }
     end
@@ -50,7 +46,6 @@ class DslTest < Minitest::Test
 
   def test_def_without_desc_is_just_a_method
     cli = Class.new(Hammer) do
-      program_name 'mycli'
       define_method(:helper) { 42 }
     end
     refute cli.commands.key?('helper')
@@ -59,8 +54,6 @@ class DslTest < Minitest::Test
   def test_def_and_define_can_coexist
     log = []
     cli = Class.new(Hammer) do
-      program_name 'mycli'
-
       desc 'def-style command'
       define_method(:foo) { |_| log << :foo }
 
@@ -77,7 +70,6 @@ class DslTest < Minitest::Test
   def test_pending_desc_does_not_leak_across_define
     log = []
     cli = Class.new(Hammer) do
-      program_name 'mycli'
       desc 'should be cleared'
       define :first do
         proc { |_| log << :first }
@@ -585,7 +577,6 @@ class DslTest < Minitest::Test
     captured = nil
     capture do
       Hammer.run(%w[hello dino -l]) do
-        program 'inline'
         define :hello do
           opt :loud, type: :boolean, alias: :l
           proc { |opts| captured = opts }
@@ -639,13 +630,6 @@ class DslTest < Minitest::Test
           assert_equal 'bin/foo', cli.program_name
         end
       end
-    end
-  end
-
-  def test_explicit_program_name_overrides_default
-    with_program_name('bin/foo') do
-      cli = Class.new(Hammer) { program_name 'override' }
-      assert_equal 'override', cli.program_name
     end
   end
 
@@ -737,7 +721,6 @@ class DslTest < Minitest::Test
     log = []
     capture do
       Hammer.run(['x']) do
-        program 'inline'
         before { log << :hook }
         define :x do
           proc { |_| log << :cmd }
@@ -907,8 +890,6 @@ class DslTest < Minitest::Test
   def test_needs_in_def_style_command
     log = []
     cli = Class.new(Hammer) do
-      program_name 'mycli'
-
       desc 'env'
       define_method(:env) { |_| log << :env }
 
@@ -944,7 +925,6 @@ class DslTest < Minitest::Test
     hits = []
     capture do
       Hammer.run(['s']) do
-        program 'x'
         define :server do
           alt :s
           proc { |_| hits << :ok }

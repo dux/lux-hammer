@@ -7,10 +7,6 @@ class Hammer
       @klass = klass
     end
 
-    def program(name)
-      @klass.program_name(name)
-    end
-
     def define(name, &block)
       @klass.define(name, &block)
     end

@@ -14,7 +14,6 @@ class CliTest < Minitest::Test
 
   def test_finds_hammerfile_in_cwd
     with_hammerfile(<<~'RUBY') do |dir|
-      program 'x'
       define :greet do
         proc { |opts| say "hi #{opts[:args].first || 'world'}" }
       end
@@ -27,7 +26,6 @@ class CliTest < Minitest::Test
   def test_walks_up_for_hammerfile
     Dir.mktmpdir do |root|
       File.write(File.join(root, 'Hammerfile'), <<~'RUBY')
-        program 'x'
         define :hi do
           proc { |_| say 'found' }
         end

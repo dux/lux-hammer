@@ -140,8 +140,10 @@ explicit ADR-level discussion. Keys:
 
 * Program name in usage lines is computed automatically (invocation path
   relative to cwd if the bin lives inside cwd, otherwise the basename of
-  `$PROGRAM_NAME`). `program 'foo'` / `program_name 'foo'` overrides it;
-  not normally needed.
+  `$PROGRAM_NAME`). There is no user-facing override; the auto-detection
+  is the whole API. `Hammer.cli` warms the cache before chdir-ing into
+  the Hammerfile's directory so the resolved name stays relative to the
+  cwd the user invoked from.
 * `hammer` (no args), `hammer -h`, and `hammer --help` all print top-level help.
 * `hammer COMMAND -h` / `--help` prints per-command help (reserved on every command).
 * Commands listed flat with colon paths, grouped by top-level namespace.
@@ -256,6 +258,9 @@ fix a bug, write the failing test first.
   separate plugin gem.
 * Don't introduce a class hierarchy for commands. Commands are data
   (`Hammer::Command` instances), not classes.
+* Don't reintroduce a user-facing `program` / `program_name` setter -
+  the auto-detected name is the whole API and was deliberately reduced
+  to that.
 * Don't propagate `program_name` into namespaces as a longer prefix -
   there is only one program name.
 * Don't make `desc` multi-arg again (it once took `usage, description`

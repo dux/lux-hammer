@@ -11,8 +11,6 @@ require_relative 'hammer/command_builder'
 # Class DSL:
 #
 #   class MyCli < Hammer
-#     program_name 'mycli'
-#
 #     define :build do
 #       desc    'Build the project'
 #       example 'build -v --env=prod'
@@ -29,7 +27,6 @@ require_relative 'hammer/command_builder'
 # Block DSL is identical, just inside `Hammer.run`:
 #
 #   Hammer.run(ARGV) do
-#     program 'inline'
 #     define :hello do
 #       desc 'Greet someone'
 #       opt :loud, type: :boolean, alias: :l
@@ -101,15 +98,17 @@ class Hammer
       @pending_needs    = []
     end
 
-    def program_name(name = nil)
-      @program_name = name if name
-      @program_name || default_program_name
+    # Resolved lazily on first read and memoized, so callers that need the
+    # cwd-relative form (see `default_program_name`) can warm the cache
+    # before chdir-ing elsewhere.
+    def program_name
+      @program_name ||= default_program_name
     end
 
-    # Default shown in help/usage when `program_name` is not set:
-    # the invocation path relative to cwd if the script lives inside it
-    # (e.g. `bin/foo` when invoked from the project root), otherwise the
-    # basename (e.g. `lux` for a globally installed bin in PATH).
+    # Program name shown in help/usage: the invocation path relative to cwd
+    # if the script lives inside it (e.g. `bin/foo` when invoked from the
+    # project root), otherwise the basename (e.g. `lux` for a globally
+    # installed bin in PATH).
     def default_program_name
       prog = $PROGRAM_NAME
       return File.basename(prog) unless prog.include?('/')
@@ -159,8 +158,8 @@ class Hammer
     end
 
     # Open a namespace (group of commands). Everything inside the block
-    # (define, nested namespace, program_name override, ...) belongs to
-    # that namespace, evaluated against an anonymous Hammer subclass.
+    # (define, nested namespace, ...) belongs to that namespace, evaluated
+    # against an anonymous Hammer subclass.
     #
     #   namespace :db do
     #     define :migrate do ... end
@@ -175,9 +174,10 @@ class Hammer
       # Parent link, so `before` hooks defined further up the namespace
       # tree can be collected and run outer -> inner before a command.
       sub.instance_variable_set(:@parent, self)
-      # Inherit program_name so help banners show "myapp ns:cmd", not
-      # whichever binary the namespace class fell back to.
-      sub.program_name(program_name) if @program_name
+      # Share the parent's resolved program_name so help banners show
+      # "myapp ns:cmd" with the same prefix everywhere - and so the value
+      # captured pre-chdir (see `Hammer.cli`) survives into nested classes.
+      sub.instance_variable_set(:@program_name, program_name)
       sub.class_eval(&block) if block
       @namespaces[name.to_s] = sub
     end
@@ -548,8 +548,8 @@ class Hammer
 
   # ----- block DSL -----------------------------------------------------
 
-  # Define and run a CLI inline. Inside the block use `program`,
-  # `define :name do ... end`, and `namespace`.
+  # Define and run a CLI inline. Inside the block use
+  # `define :name do ... end`, `namespace`, and `load`.
   #
   # Without a block: load ./Hammerfile if it exists, otherwise
   # auto-discover *_hammer.rb under Dir.pwd, then dispatch ARGV.
@@ -577,8 +577,6 @@ class Hammer
       Shell.print_error "no Hammerfile found in #{Dir.pwd} or any parent directory"
       Shell.say "create one - example:"
       Shell.say <<~RUBY
-        program 'mycli'
-
         define :hello do
           desc 'say hello'
           proc { |opts| say "hello \#{opts[:args].first || 'world'}", :green }
@@ -589,8 +587,8 @@ class Hammer
 
     klass = Class.new(Hammer)
     # Resolve before chdir so paths like `bin/foo` stay relative to the
-    # cwd the user actually invoked from.
-    klass.program_name(klass.default_program_name)
+    # cwd the user actually invoked from. `program_name` memoizes.
+    klass.program_name
 
     # chdir into the Hammerfile's directory for the entire run so commands
     # operate on the project root (Rake-style).

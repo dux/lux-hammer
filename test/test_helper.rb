@@ -8,6 +8,10 @@ require 'lux-hammer'
 # Silence colors and capture stdout/stderr in tests
 Hammer::Shell.color!(false)
 
+# Stable program name for help/usage assertions. Individual tests that
+# verify the auto-detection logic override $PROGRAM_NAME locally.
+$PROGRAM_NAME = 'mycli'
+
 module CaptureIO
   def capture
     out_was, err_was = $stdout, $stderr

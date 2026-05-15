@@ -844,18 +844,18 @@ end
 
 ```sh
 $ hammer
-Usage: demo COMMAND [ARGS]
+Usage: hammer COMMAND [ARGS]
 
 Commands:
-  demo build               # Build the project
-  demo deploy (alt: ship)  # Deploy to URL
+  hammer build               # Build the project
+  hammer deploy (alt: ship)  # Deploy to URL
 
 db:
-  demo db:migrate (alt: m)  # Run pending migrations
+  hammer db:migrate (alt: m)  # Run pending migrations
 
 db:users:
-  demo db:users:list       # List users
-  demo db:users:create     # Create a user
+  hammer db:users:list       # List users
+  hammer db:users:create     # Create a user
 
 $ hammer build prod -v
 building prod
@@ -872,17 +872,17 @@ $ hammer db:users:create --email=dino@example.com --admin
 create dino@example.com admin=true
 
 $ hammer db                  # bare namespace shows its contents
-Usage: demo db:COMMAND [ARGS]
+Usage: hammer db:COMMAND [ARGS]
 
 Commands:
-  demo db:migrate (alt: m)  # Run pending migrations
+  hammer db:migrate (alt: m)  # Run pending migrations
 
 users:
-  demo db:users:list        # List users
-  demo db:users:create      # Create a user
+  hammer db:users:list        # List users
+  hammer db:users:create      # Create a user
 
 $ hammer db:users:create -h
-Usage: demo db:users:create EMAIL [OPTIONS]
+Usage: hammer db:users:create EMAIL [OPTIONS]
   Create a user
 
 Options:

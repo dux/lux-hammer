@@ -3,8 +3,6 @@ $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'lux-hammer'
 
 class MyCli < Hammer
-  program_name 'mycli'
-
   define :build do
     desc    'Build the project'
     example 'build prod -v'

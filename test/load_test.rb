@@ -13,7 +13,7 @@ class LoadTest < Minitest::Test
   end
 
   def make_cli
-    Class.new(Hammer) { program_name 'tcli' }
+    Class.new(Hammer)
   end
 
   def test_load_explicit_file
@@ -219,7 +219,6 @@ class LoadTest < Minitest::Test
   def test_hammerfile_can_call_load
     with_proj do |dir|
       write(File.join(dir, 'Hammerfile'), <<~RUBY)
-        program 'demo'
         load auto: true
       RUBY
       write(File.join(dir, 'tasks/db_hammer.rb'), <<~RUBY)
@@ -230,7 +229,7 @@ class LoadTest < Minitest::Test
       RUBY
       Dir.chdir(dir) do
         out, _ = capture { Hammer.cli(['help']) }
-        assert_includes out, 'demo migrate'
+        assert_includes out, 'mycli migrate'
       end
     end
   end
