@@ -7,8 +7,8 @@ class Hammer
       @klass = klass
     end
 
-    def define(name, &block)
-      @klass.define(name, &block)
+    def task(name, &block)
+      @klass.task(name, &block)
     end
 
     def namespace(name, &block)

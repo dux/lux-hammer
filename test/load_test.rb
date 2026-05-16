@@ -20,7 +20,7 @@ class LoadTest < Minitest::Test
     with_proj do |dir|
       file = File.join(dir, 'db_hammer.rb')
       write(file, <<~RUBY)
-        define :migrate do
+        task :migrate do
           desc 'Migrate'
           proc { |_| }
         end
@@ -33,8 +33,8 @@ class LoadTest < Minitest::Test
 
   def test_load_glob
     with_proj do |dir|
-      write(File.join(dir, 'a_hammer.rb'), "define(:a) { desc 'A'; proc { |_| } }\n")
-      write(File.join(dir, 'b_hammer.rb'), "define(:b) { desc 'B'; proc { |_| } }\n")
+      write(File.join(dir, 'a_hammer.rb'), "task(:a) { desc 'A'; proc { |_| } }\n")
+      write(File.join(dir, 'b_hammer.rb'), "task(:b) { desc 'B'; proc { |_| } }\n")
       cli = make_cli
       cli.loader.load(dir, ['*_hammer.rb'], {})
       assert cli.commands.key?('a')
@@ -44,8 +44,8 @@ class LoadTest < Minitest::Test
 
   def test_load_auto_recursive
     with_proj do |dir|
-      write(File.join(dir, 'a_hammer.rb'), "define(:a) { proc { |_| } }\n")
-      write(File.join(dir, 'sub/b_hammer.rb'), "define(:b) { proc { |_| } }\n")
+      write(File.join(dir, 'a_hammer.rb'), "task(:a) { proc { |_| } }\n")
+      write(File.join(dir, 'sub/b_hammer.rb'), "task(:b) { proc { |_| } }\n")
       cli = make_cli
       cli.loader.load(dir, [], {})
       assert cli.commands.key?('a')
@@ -55,7 +55,7 @@ class LoadTest < Minitest::Test
 
   def test_load_auto_kwarg_equivalent_to_bare
     with_proj do |dir|
-      write(File.join(dir, 'a_hammer.rb'), "define(:a) { proc { |_| } }\n")
+      write(File.join(dir, 'a_hammer.rb'), "task(:a) { proc { |_| } }\n")
       cli = make_cli
       cli.loader.load(dir, [], { auto: true })
       assert cli.commands.key?('a')
@@ -64,7 +64,7 @@ class LoadTest < Minitest::Test
 
   def test_auto_false_is_noop
     with_proj do |dir|
-      write(File.join(dir, 'a_hammer.rb'), "define(:a) { proc { |_| } }\n")
+      write(File.join(dir, 'a_hammer.rb'), "task(:a) { proc { |_| } }\n")
       cli = make_cli
       cli.loader.load(dir, [], { auto: false })
       refute cli.commands.key?('a')
@@ -73,10 +73,10 @@ class LoadTest < Minitest::Test
 
   def test_skipped_dirs_are_ignored
     with_proj do |dir|
-      write(File.join(dir, 'good_hammer.rb'), "define(:good) { proc { |_| } }\n")
-      write(File.join(dir, 'node_modules/x_hammer.rb'), "define(:bad) { proc { |_| } }\n")
-      write(File.join(dir, '.git/y_hammer.rb'), "define(:bad2) { proc { |_| } }\n")
-      write(File.join(dir, 'tmp/z_hammer.rb'), "define(:bad3) { proc { |_| } }\n")
+      write(File.join(dir, 'good_hammer.rb'), "task(:good) { proc { |_| } }\n")
+      write(File.join(dir, 'node_modules/x_hammer.rb'), "task(:bad) { proc { |_| } }\n")
+      write(File.join(dir, '.git/y_hammer.rb'), "task(:bad2) { proc { |_| } }\n")
+      write(File.join(dir, 'tmp/z_hammer.rb'), "task(:bad3) { proc { |_| } }\n")
       cli = make_cli
       cli.loader.load(dir, [], {})
       assert cli.commands.key?('good')
@@ -88,8 +88,8 @@ class LoadTest < Minitest::Test
 
   def test_only_files_ending_in_hammer_rb_are_picked_up
     with_proj do |dir|
-      write(File.join(dir, 'a_hammer.rb'), "define(:a) { proc { |_| } }\n")
-      write(File.join(dir, 'helpers.rb'),  "define(:should_not_register) { proc { |_| } }\n")
+      write(File.join(dir, 'a_hammer.rb'), "task(:a) { proc { |_| } }\n")
+      write(File.join(dir, 'helpers.rb'),  "task(:should_not_register) { proc { |_| } }\n")
       cli = make_cli
       cli.loader.load(dir, [], {})
       assert cli.commands.key?('a')
@@ -100,7 +100,7 @@ class LoadTest < Minitest::Test
   def test_dedup_same_file_loaded_once
     with_proj do |dir|
       file = File.join(dir, 'x_hammer.rb')
-      write(file, "define(:x) { proc { |_| } }\n")
+      write(file, "task(:x) { proc { |_| } }\n")
       cli = make_cli
       cli.loader.load(dir, [], {})
       cli.loader.load(dir, [], {})
@@ -112,9 +112,9 @@ class LoadTest < Minitest::Test
     with_proj do |dir|
       write(File.join(dir, 'a_hammer.rb'), <<~RUBY)
         load 'b_hammer.rb'
-        define(:a) { proc { |_| } }
+        task(:a) { proc { |_| } }
       RUBY
-      write(File.join(dir, 'b_hammer.rb'), "define(:b) { proc { |_| } }\n")
+      write(File.join(dir, 'b_hammer.rb'), "task(:b) { proc { |_| } }\n")
       cli = make_cli
       cli.loader.load(dir, [], {})
       assert cli.commands.key?('a')
@@ -167,7 +167,7 @@ class LoadTest < Minitest::Test
     with_proj do |dir|
       write(File.join(dir, 'db_hammer.rb'), <<~RUBY)
         namespace :db do
-          define :migrate do
+          task :migrate do
             desc 'Run migrations'
             proc { |_| }
           end
@@ -182,7 +182,7 @@ class LoadTest < Minitest::Test
 
   def test_load_via_builder_uses_caller_anchor
     with_proj do |dir|
-      write(File.join(dir, 'a_hammer.rb'), "define(:a) { proc { |_| } }\n")
+      write(File.join(dir, 'a_hammer.rb'), "task(:a) { proc { |_| } }\n")
       cli = Class.new(Hammer)
       Hammer::Builder.new(cli).load(File.join(dir, 'a_hammer.rb'))
       assert cli.commands.key?('a')
@@ -193,13 +193,13 @@ class LoadTest < Minitest::Test
     with_proj do |dir|
       write(File.join(dir, 'a_hammer.rb'), <<~RUBY)
         namespace :db do
-          define :migrate do
+          task :migrate do
             proc { |_| $log << :migrated }
           end
         end
       RUBY
       write(File.join(dir, 'b_hammer.rb'), <<~RUBY)
-        define :deploy do
+        task :deploy do
           proc do |_|
             hammer 'db:migrate'
             $log << :deployed
@@ -222,7 +222,7 @@ class LoadTest < Minitest::Test
         load auto: true
       RUBY
       write(File.join(dir, 'tasks/db_hammer.rb'), <<~RUBY)
-        define :migrate do
+        task :migrate do
           desc 'Migrate'
           proc { |_| say 'migrated' }
         end

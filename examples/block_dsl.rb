@@ -3,7 +3,7 @@ $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'lux-hammer'
 
 Hammer.run(ARGV) do
-  define :hello do
+  task :hello do
     desc    'Greet someone'
     example 'hello'
     example 'hello dino -l'

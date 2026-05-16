@@ -3,7 +3,7 @@ $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'lux-hammer'
 
 class MyCli < Hammer
-  define :build do
+  task :build do
     desc    'Build the project'
     example 'build prod -v'
     example 'build --env=staging'
@@ -17,7 +17,7 @@ class MyCli < Hammer
     end
   end
 
-  define :deploy do
+  task :deploy do
     desc    'Deploy to URL'
     example 'deploy https://example.com --force'
     opt :url
@@ -30,7 +30,7 @@ class MyCli < Hammer
   end
 
   namespace :db do
-    define :migrate do
+    task :migrate do
       desc    'Run pending migrations'
       example 'db:migrate'
       example 'db:migrate 3 --pretend'
@@ -43,7 +43,7 @@ class MyCli < Hammer
     end
 
     namespace :users do
-      define :list do
+      task :list do
         desc 'List users'
         proc { |opts| say "users: #{opts[:args].inspect}", :cyan }
       end

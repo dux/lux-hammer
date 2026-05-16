@@ -4,11 +4,11 @@ The bastard Frankenstein child of Rake, Thor, and Joshua. Sewn
 together from three good ideas, with the rest of each parent left on
 the cutting room floor.
 
-Drop a `Hammerfile`, run `hammer`, ship.
+Drop a `Hammerfile`, run `hammer`, ship. AI LLM-s love `hammer`.
 
 ```ruby
 namespace :db do                          # Rake-style colon paths
-  define :migrate do                      # Joshua-style define block
+  task :migrate do                      # Joshua-style task block
     desc 'Run pending migrations'
     opt :pretend, type: :boolean, alias: :p   # Thor-style typed opts
     proc do |o|
@@ -40,7 +40,7 @@ migrating pretend=true
   that most CLIs never reach for.
 
 * **From [Joshua](https://github.com/dux/joshua)** we took the
-  *`define :name do ... end` block DSL* - declarative metadata up
+  *`task :name do ... end` block DSL* - declarative metadata up
   top, one `proc do |opts| ... end` at the bottom doing the work. No
   `def`-and-`desc` split, no class required, no boilerplate between
   "what this command is" and "what it does".
@@ -67,7 +67,7 @@ This installs the `hammer` binary and exposes `require 'lux-hammer'`.
 Create a `Hammerfile` in your project root:
 
 ```ruby
-define :hello do
+task :hello do
   desc 'say hi'
   proc do |opts|
     say.green "hello #{opts[:args].first || 'world'}"
@@ -115,7 +115,7 @@ Hammer takes typed options, positional fill, and any common flag form:
 
 ```ruby
 # Hammerfile
-define :greet do
+task :greet do
   desc 'Say hello'
   opt :name
   opt :loud, type: :boolean, alias: :l
@@ -159,7 +159,7 @@ end
 
 ```ruby
 # hammer - one arg system, real aliases, no usage string to maintain
-define :greet do
+task :greet do
   desc 'Say hello'
   alt :g
   opt :name
@@ -173,13 +173,13 @@ and there's one place to look for everything the command takes.
 
 ## The two styles
 
-### `define :name do ... end` (block DSL)
+### `task :name do ... end` (block DSL)
 
 The block's **last expression must be `proc do |opts| ... end`**. That
 proc is the handler. Everything before it is metadata.
 
 ```ruby
-define :build do
+task :build do
   desc    'Build the project'
   example 'build prod -v'
   opt :verbose, type: :boolean, alias: :v
@@ -371,7 +371,7 @@ Anything in ARGV without `-` / `--` fills the next un-set
 **non-boolean** opt, in declaration order:
 
 ```ruby
-define :deploy do
+task :deploy do
   opt :url
   opt :env, default: 'dev'
   proc { |opts| ... }
@@ -403,7 +403,7 @@ Always a `Hash` with **symbol keys**. Keys present:
 * `opts[:args]` - array of positional ARGV not absorbed by an opt
 
 ```ruby
-define :show do
+task :show do
   opt :env, default: 'dev'
   opt :loud, type: :boolean
   proc { |opts| p opts }
@@ -435,12 +435,12 @@ colon-paths from the root binary - just like `rake db:migrate`:
 
 ```ruby
 namespace :db do
-  define :migrate do
+  task :migrate do
     proc { |opts| ... }
   end
 
   namespace :users do
-    define :list do
+    task :list do
       proc { |opts| ... }
     end
   end
@@ -470,13 +470,13 @@ before { Dotenv.load }                  # runs before every command
 
 namespace :db do
   before { hammer :env }                # runs before every db:* command
-  define :migrate do
+  task :migrate do
     proc { |opts| ... }                 # no boilerplate require inside
   end
 end
 ```
 
-`before` is intentionally not available inside `define` - the proc body
+`before` is intentionally not available inside `task` - the proc body
 *is* the command body, just put the setup line at the top of the proc.
 
 Pairs naturally with hidden commands (next section): keep `:env` /
@@ -488,13 +488,13 @@ A command declared without a `desc` is **hidden from help listings**
 but stays fully dispatchable and `hammer`-callable:
 
 ```ruby
-define :env do
+task :env do
   proc { |_| require './config/env' }   # no desc -> hidden
 end
 
 namespace :db do
   before { hammer :env }                # call it from a hook
-  define :migrate do
+  task :migrate do
     desc 'Run migrations'
     proc { |_| ... }
   end
@@ -509,17 +509,17 @@ end
 Declare commands that must run before this one (Rake-style task deps):
 
 ```ruby
-define :env do
+task :env do
   proc { |_| require './config/env' }     # hidden helper
 end
 
-define :app do
+task :app do
   needs :env                              # runs `env` first
   desc 'start the app'
   proc { |opts| App.start }
 end
 
-define :deploy do
+task :deploy do
   needs :env, :build                      # multiple prereqs, in order
   proc { |opts| ... }
 end
@@ -542,7 +542,7 @@ only once. Prereqs run with default options (no argv passed through).
 `alt :short_name` (or several) registers extra names for a command:
 
 ```ruby
-define :server do
+task :server do
   alt :s, :srv
   proc { |opts| ... }
 end
@@ -558,7 +558,7 @@ From inside any command's proc - or from outside via the class - you can
 invoke other commands without re-shelling out:
 
 ```ruby
-define :deploy do
+task :deploy do
   proc do |opts|
     hammer :build, env: 'prod', verbose: true
     hammer 'db:migrate'
@@ -729,7 +729,7 @@ load auto: true              # recursive scan for *_hammer.rb from here
 ```ruby
 # tasks/db_hammer.rb
 namespace :db do
-  define :migrate do
+  task :migrate do
     desc 'Run pending migrations'
     opt :pretend, type: :boolean, alias: :p
     proc { |o| say.green "migrating pretend=#{o[:pretend].inspect}" }
@@ -739,7 +739,7 @@ end
 
 ```ruby
 # tasks/deploy_hammer.rb
-define :deploy do
+task :deploy do
   desc 'Deploy to prod'
   proc do |_|
     hammer 'db:migrate'      # cross-file invocation just works
@@ -777,7 +777,7 @@ hidden directory.
 ### Fragment shape
 
 A `*_hammer.rb` file is a **block-DSL fragment** - same surface as a
-`Hammerfile`: `define`, `namespace`, and nested `load`. Not a class
+`Hammerfile`: `task`, `namespace`, and nested `load`. Not a class
 re-open. If you want to extend a `Hammer` subclass in the classic
 `desc` + `def` style across files, use plain `require_relative`.
 
@@ -801,7 +801,7 @@ Same shape as a Hammerfile, just inline:
 require 'lux-hammer'
 
 Hammer.run(ARGV) do
-  define :hello do
+  task :hello do
     desc 'say hi'
     opt :loud, type: :boolean, alias: :l
     proc do |opts|
@@ -845,7 +845,7 @@ end
 
 ```ruby
 # Simple top-level command
-define :build do
+task :build do
   desc    'Build the project'
   example 'build prod -v'
   example 'build --env=staging'
@@ -860,7 +860,7 @@ define :build do
 end
 
 # Command that calls another command
-define :deploy do
+task :deploy do
   desc 'Deploy to URL'
   alt :ship
   opt :url, req: true
@@ -875,7 +875,7 @@ end
 
 # Namespace with two levels of nesting
 namespace :db do
-  define :migrate do
+  task :migrate do
     desc 'Run pending migrations'
     alt :m
     example 'db:migrate 3 --pretend'
@@ -888,7 +888,7 @@ namespace :db do
   end
 
   namespace :users do
-    define :list do
+    task :list do
       desc 'List users'
       opt :role, default: 'all'
       opt :limit, type: :integer, default: 100
@@ -898,7 +898,7 @@ namespace :db do
       end
     end
 
-    define :create do
+    task :create do
       desc 'Create a user'
       opt :email, req: true
       opt :admin, type: :boolean
@@ -968,7 +968,7 @@ directly. Useful for embedding or testing:
 require 'lux-hammer'
 
 class MyCli < Hammer
-  define :greet do
+  task :greet do
     opt :loud, type: :boolean
     proc do |opts|
       msg = "hello #{opts[:args].first}"
@@ -1006,7 +1006,7 @@ few small things that have been bugging me about both for years.
 | Lines of code | ~6,000 | ~400 |
 | Runtime deps | a few | zero |
 | Root constants | `Thor`, `Thor::Group`, `Thor::Shell`, `Thor::Actions`, ... | just `Hammer` |
-| Command DSL | `desc 'usage', 'help'` + `method_option` + `def name(arg)` | `define :name do ... proc do \|opts\| end end` (or classic `desc` + `def`) |
+| Command DSL | `desc 'usage', 'help'` + `method_option` + `def name(arg)` | `task :name do ... proc do \|opts\| end end` (or classic `desc` + `def`) |
 | Opts container | `Thor::CoreExt::HashWithIndifferentAccess` | plain `Hash` with symbol keys |
 | Positional args | method positional params + `method_option`, two parallel systems | declared-order opts fill from positional, single system |
 | Sub-namespaces | `register SubClass, 'name', '...'` (inheritance ceremony) | `namespace :name do ... end` (no classes needed) |

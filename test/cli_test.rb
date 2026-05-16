@@ -14,7 +14,7 @@ class CliTest < Minitest::Test
 
   def test_finds_hammerfile_in_cwd
     with_hammerfile(<<~'RUBY') do |dir|
-      define :greet do
+      task :greet do
         proc { |opts| say "hi #{opts[:args].first || 'world'}" }
       end
     RUBY
@@ -26,7 +26,7 @@ class CliTest < Minitest::Test
   def test_walks_up_for_hammerfile
     Dir.mktmpdir do |root|
       File.write(File.join(root, 'Hammerfile'), <<~'RUBY')
-        define :hi do
+        task :hi do
           proc { |_| say 'found' }
         end
       RUBY
@@ -51,11 +51,11 @@ class CliTest < Minitest::Test
 
   def test_namespaces_in_hammerfile
     with_hammerfile(<<~'RUBY') do |_|
-      define :build do
+      task :build do
         proc { |_| say 'built' }
       end
       namespace :db do
-        define :migrate do
+        task :migrate do
           proc { |_| say 'migrated' }
         end
       end

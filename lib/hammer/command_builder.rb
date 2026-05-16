@@ -1,5 +1,5 @@
 class Hammer
-  # Context object for `define :name do ... end` blocks. Exposes
+  # Context object for `task :name do ... end` blocks. Exposes
   # desc/example/opt/alt; the block's return value (a `proc do |opts|`)
   # becomes the command handler.
   class CommandBuilder

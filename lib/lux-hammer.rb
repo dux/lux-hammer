@@ -11,7 +11,7 @@ require_relative 'hammer/command_builder'
 # Class DSL:
 #
 #   class MyCli < Hammer
-#     define :build do
+#     task :build do
 #       desc    'Build the project'
 #       example 'build -v --env=prod'
 #       opt :verbose, type: :boolean, alias: :v
@@ -27,7 +27,7 @@ require_relative 'hammer/command_builder'
 # Block DSL is identical, just inside `Hammer.run`:
 #
 #   Hammer.run(ARGV) do
-#     define :hello do
+#     task :hello do
 #       desc 'Greet someone'
 #       opt :loud, type: :boolean, alias: :l
 #       proc do |opts|
@@ -124,17 +124,17 @@ class Hammer
     # return a Proc as its last expression. That proc is the handler and
     # receives a single `opts` hash with symbol keys; positional ARGV
     # lives at `opts[:args]`.
-    def define(name, &block)
+    def task(name, &block)
       cmd = Command.new(name: name.to_s)
       handler = CommandBuilder.new(cmd).instance_eval(&block)
       unless handler.is_a?(Proc)
         raise Error, <<~MSG
-          define(:#{name}) block must end with a `proc do |opts| ... end`.
+          task(:#{name}) block must end with a `proc do |opts| ... end`.
           The proc's return value is what becomes the command handler.
 
           Example:
 
-            define :#{name} do
+            task :#{name} do
               desc    'what it does'
               example '#{name} foo --env=prod'
               opt :env, default: 'dev'
@@ -148,7 +148,7 @@ class Hammer
       cmd.handler = handler
       commands[cmd.name] = cmd
 
-      # `define` ignores pending class-level state, but clear it so a
+      # `task` ignores pending class-level state, but clear it so a
       # later `def` doesn't accidentally consume stale metadata.
       @pending_desc = nil
       @pending_examples = []
@@ -158,11 +158,11 @@ class Hammer
     end
 
     # Open a namespace (group of commands). Everything inside the block
-    # (define, nested namespace, ...) belongs to that namespace, evaluated
+    # (task, nested namespace, ...) belongs to that namespace, evaluated
     # against an anonymous Hammer subclass.
     #
     #   namespace :db do
-    #     define :migrate do ... end
+    #     task :migrate do ... end
     #     namespace :users do ... end
     #   end
     def namespace(name, &block)
@@ -189,7 +189,7 @@ class Hammer
     #   before { |opts| Dotenv.load }
     #   namespace :db do
     #     before { hammer :env }
-    #     define :migrate do ... end
+    #     task :migrate do ... end
     #   end
     def before(&block)
       before_hooks << block
@@ -548,7 +548,7 @@ class Hammer
 
   # Inside a command's `proc do |opts| ... end`, call sibling commands:
   #
-  #   define :deploy do
+  #   task :deploy do
   #     proc do |opts|
   #       hammer :build
   #       hammer 'db:migrate', pretend: true
@@ -564,7 +564,7 @@ class Hammer
   # ----- block DSL -----------------------------------------------------
 
   # Define and run a CLI inline. Inside the block use
-  # `define :name do ... end`, `namespace`, and `load`.
+  # `task :name do ... end`, `namespace`, and `load`.
   #
   # Without a block: load ./Hammerfile if it exists, otherwise
   # auto-discover *_hammer.rb under Dir.pwd, then dispatch ARGV.
@@ -606,7 +606,7 @@ class Hammer
       Shell.say "create one - example:"
       puts
       Shell.say <<~RUBY
-        define :hello do
+        task :hello do
           desc 'say hello'
           proc do |opts|
             say.green "hello \#{opts[:args].first || 'world'}"

@@ -1,6 +1,6 @@
 # run with bin/hammer
 
-define :test do
+task :test do
   desc 'Run the full test suite (minitest, no Rake)'
   proc do
     $LOAD_PATH.unshift File.expand_path('lib'), File.expand_path('test')
@@ -11,13 +11,13 @@ define :test do
 end
 
 namespace :gem do
-  define :version do
+  task :version do
     desc 'Print the current gem version'
     proc { say File.read('.version').strip }
   end
 
   namespace :version do
-    define :inc do
+    task :inc do
       desc 'Bump the version in .version (patch by default)'
       opt :bump, default: 'patch', desc: 'major | minor | patch'
 
@@ -42,7 +42,7 @@ namespace :gem do
     end
   end
 
-  define :build do
+  task :build do
     desc 'Build the lux-hammer gem'
     proc do
       # remove old .gem artifacts
@@ -54,7 +54,7 @@ namespace :gem do
     end
   end
 
-  define :publish do
+  task :publish do
     desc 'Build and push the gem to RubyGems'
     proc do
       hammer 'gem:version:inc'
@@ -68,7 +68,12 @@ namespace :gem do
   end
 end
 
-define :info do
+task :gh do
+  desc 'Open the GitHub repo in the browser'
+  proc { sh 'open https://github.com/dux/hammer' }
+end
+
+task :info do
   desc 'Show project stats'
   proc do
     version   = File.read('.version').strip

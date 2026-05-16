@@ -1,4 +1,4 @@
-define :build do
+task :build do
   desc    'Build the project'
   example 'build prod -v'
   opt :verbose, type: :boolean, alias: :v
@@ -11,7 +11,7 @@ define :build do
   end
 end
 
-define :deploy do
+task :deploy do
   desc 'Deploy to URL'
   opt :url, req: true
   opt :force, type: :boolean
@@ -23,7 +23,7 @@ define :deploy do
 end
 
 namespace :db do
-  define :migrate do
+  task :migrate do
     desc 'Run pending migrations'
     opt :pretend, type: :boolean, alias: :p
     proc do |opts|
@@ -33,7 +33,7 @@ namespace :db do
   end
 
   namespace :users do
-    define :list do
+    task :list do
       desc 'List users'
       proc { |opts| say "users: #{opts[:args].inspect}", :cyan }
     end

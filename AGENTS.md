@@ -6,7 +6,7 @@ Conventions and constraints for AI agents working on this gem.
 
 A tiny CLI builder stitched together from three influences:
 namespaces and prereqs from Rake, typed option parsing from Thor, and
-the `define :name do ... end` block DSL from Joshua. Users drop a
+the `task :name do ... end` block DSL from Joshua. Users drop a
 `Hammerfile` in their project, run `hammer`, get a structured CLI. Also
 usable as a library (`require 'lux-hammer'`, subclass `Hammer`, call
 `.start(ARGV)`).
@@ -29,7 +29,7 @@ usable as a library (`require 'lux-hammer'`, subclass `Hammer`, call
   command listings, the full string renders (indented) in per-command
   help. Trailing whitespace is stripped so heredocs work cleanly. `desc`
   is never multi-arg - that form was tried and reverted.
-* **The `proc` is the trailing expression of a `define` block.** Do not
+* **The `proc` is the trailing expression of a `task` block.** Do not
   introduce `run do ... end` or similar - the user explicitly chose this.
 
 ## File layout
@@ -43,7 +43,7 @@ lib/hammer/parser.rb        # ARGV -> [positional, opts_hash]
 lib/hammer/command.rb       # One registered command (name, opts, alts, handler)
 lib/hammer/loader.rb        # `*_hammer.rb` fragment loader (auto/glob/file)
 lib/hammer/builder.rb       # Block-DSL context (Hammerfile / Hammer.run)
-lib/hammer/command_builder.rb # `define :name do ... end` context
+lib/hammer/command_builder.rb # `task :name do ... end` context
 test/dsl_test.rb            # DSL surface, dispatch, help formatting
 test/load_test.rb           # `load` / `*_hammer.rb` fragment loader
 test/parser_test.rb         # ARGV parsing edge cases
@@ -58,7 +58,7 @@ examples/block_dsl.rb       # Reference block DSL usage
 
 ## DSL surface (do not break compatibility silently)
 
-Inside a `define :name do ... end` block (CommandBuilder context):
+Inside a `task :name do ... end` block (CommandBuilder context):
 
 * `desc 'short description'` (string may contain `\n`; first line is
   the brief shown in listings, full text renders in per-command help)
@@ -82,7 +82,7 @@ At class scope (for `def`-style commands):
 
 At class or `Hammerfile` scope:
 
-* `define :name do ... end`
+* `task :name do ... end`
 * `namespace :name do ... end`
 * `load` / `load auto: true` / `load 'path/file.rb'` / `load 'glob/*.rb'` /
   `load 'some/dir'` - pull in Hammerfile fragments from `*_hammer.rb`
@@ -94,7 +94,7 @@ At class or `Hammerfile` scope:
   target class, so re-entrant `load` is safe. Skipped dirs:
   `.git`, `.bundle`, `node_modules`, `tmp`, `vendor`, `dist`, `build`,
   `coverage`, plus any hidden dir. Fragment shape is the block DSL
-  (`define`, `namespace`); class-DSL fragments belong in plain `.rb`
+  (`task`, `namespace`); class-DSL fragments belong in plain `.rb`
   files loaded with `require_relative`.
 
 Runtime cross-invocation:

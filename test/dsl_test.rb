@@ -57,7 +57,7 @@ class DslTest < Minitest::Test
       desc 'def-style command'
       define_method(:foo) { |_| log << :foo }
 
-      define :bar do
+      task :bar do
         desc 'block-style command'
         proc { |_| log << :bar }
       end
@@ -71,7 +71,7 @@ class DslTest < Minitest::Test
     log = []
     cli = Class.new(Hammer) do
       desc 'should be cleared'
-      define :first do
+      task :first do
         proc { |_| log << :first }
       end
       # No desc here - foo should NOT become a command
@@ -84,7 +84,7 @@ class DslTest < Minitest::Test
   def test_define_registers_command
     captured = nil
     cli = build_cli do
-      define :build do
+      task :build do
         desc 'Build'
         opt :env, default: 'dev'
         proc { |opts| captured = opts }
@@ -99,7 +99,7 @@ class DslTest < Minitest::Test
   def test_opts_all_symbol_keys
     seen = nil
     cli = build_cli do
-      define :x do
+      task :x do
         opt :env, default: 'dev'
         opt :loud, type: :boolean
         proc { |opts| seen = opts }
@@ -115,28 +115,28 @@ class DslTest < Minitest::Test
 
   def test_block_must_end_with_proc
     err = assert_raises(Hammer::Error) do
-      build_cli { define(:bad) { desc 'no proc here' } }
+      build_cli { task(:bad) { desc 'no proc here' } }
     end
     assert_includes err.message, 'must end with'
   end
 
   def test_missing_proc_error_includes_example
     err = assert_raises(Hammer::Error) do
-      build_cli { define(:greet) { desc 'hi' } }
+      build_cli { task(:greet) { desc 'hi' } }
     end
     assert_includes err.message, 'Example:'
-    assert_includes err.message, 'define :greet do'
+    assert_includes err.message, 'task :greet do'
     assert_includes err.message, 'proc do |opts|'
   end
 
   def test_help_groups_by_namespace
     cli = build_cli do
-      define :build do
+      task :build do
         desc 'Build'
         proc { |_| }
       end
       namespace :db do
-        define :migrate do
+        task :migrate do
           desc 'Migrate'
           proc { |_| }
         end
@@ -153,7 +153,7 @@ class DslTest < Minitest::Test
 
   def test_option_help_shows_default_and_required
     cli = build_cli do
-      define :run do
+      task :run do
         opt :env, default: 'dev'
         opt :url, req: true
         proc { |_| }
@@ -166,7 +166,7 @@ class DslTest < Minitest::Test
 
   def test_command_usage_shows_positional_opt_names
     cli = build_cli do
-      define :deploy do
+      task :deploy do
         opt :url, req: true
         opt :env
         proc { |_| }
@@ -179,7 +179,7 @@ class DslTest < Minitest::Test
   def test_alt_dispatches
     hits = []
     cli = build_cli do
-      define :server do
+      task :server do
         alt :s, :srv
         proc { |_| hits << :ran }
       end
@@ -191,14 +191,14 @@ class DslTest < Minitest::Test
   end
 
   def test_unknown_command_exits_1
-    cli = build_cli { define(:x) { proc { |_| } } }
+    cli = build_cli { task(:x) { proc { |_| } } }
     _, err, status = capture_exit { cli.start(['bogus']) }
     assert_equal 1, status
     assert_includes err, 'unknown command'
   end
 
   def test_help_prints_github_footer
-    cli = build_cli { define(:x) { desc 'X'; proc { |_| } } }
+    cli = build_cli { task(:x) { desc 'X'; proc { |_| } } }
     out, = capture { cli.start(['help']) }
     assert_includes out, 'powered by hammer'
     assert_includes out, 'https://github.com/dux/hammer'
@@ -206,11 +206,11 @@ class DslTest < Minitest::Test
 
   def test_help_lists_commands_with_alts
     cli = build_cli do
-      define :build do
+      task :build do
         desc 'Build'
         proc { |_| }
       end
-      define :server do
+      task :server do
         desc 'Server'
         alt :s
         proc { |_| }
@@ -225,7 +225,7 @@ class DslTest < Minitest::Test
 
   def test_per_command_help
     cli = build_cli do
-      define :build do
+      task :build do
         desc 'Build the project'
         example 'build -v'
         opt :verbose, type: :boolean, alias: :v
@@ -242,7 +242,7 @@ class DslTest < Minitest::Test
 
   def test_multi_line_desc_lists_only_brief
     cli = build_cli do
-      define :build do
+      task :build do
         desc "Build the project\nextra detail not shown in listing"
         proc { |_| }
       end
@@ -254,7 +254,7 @@ class DslTest < Minitest::Test
 
   def test_multi_line_desc_shows_full_in_command_help
     cli = build_cli do
-      define :build do
+      task :build do
         desc <<~TEXT
           Build the project.
 
@@ -269,7 +269,7 @@ class DslTest < Minitest::Test
   end
 
   def test_help_via_dash_h
-    cli = build_cli { define(:x) { desc 'X'; proc { |_| } } }
+    cli = build_cli { task(:x) { desc 'X'; proc { |_| } } }
     out, = capture { cli.start(['-h']) }
     assert_includes out, 'Usage:'
   end
@@ -277,7 +277,7 @@ class DslTest < Minitest::Test
   def test_dash_h_after_command_shows_command_help
     ran = false
     cli = build_cli do
-      define :build do
+      task :build do
         desc 'Build the project'
         opt :env, default: 'dev'
         proc { |_| ran = true }
@@ -292,7 +292,7 @@ class DslTest < Minitest::Test
   def test_long_help_flag_after_command
     ran = false
     cli = build_cli do
-      define :build do
+      task :build do
         proc { |_| ran = true }
       end
     end
@@ -303,7 +303,7 @@ class DslTest < Minitest::Test
   def test_help_after_namespaced_command_shows_full_path
     cli = build_cli do
       namespace :gem do
-        define :inc_version do
+        task :inc_version do
           desc 'Bump version'
           opt :bump, default: 'patch'
           proc { |_| }
@@ -317,7 +317,7 @@ class DslTest < Minitest::Test
   def test_parser_error_help_uses_full_path
     cli = build_cli do
       namespace :gem do
-        define :inc_version do
+        task :inc_version do
           opt :bump
           proc { |_| }
         end
@@ -331,7 +331,7 @@ class DslTest < Minitest::Test
   def test_double_dash_keeps_minus_h_as_positional
     captured = nil
     cli = build_cli do
-      define :x do
+      task :x do
         proc { |opts| captured = opts[:args] }
       end
     end
@@ -355,7 +355,7 @@ class DslTest < Minitest::Test
     captured = nil
     cli = build_cli do
       namespace :db do
-        define :migrate do
+        task :migrate do
           proc { |opts| captured = opts[:args] }
         end
       end
@@ -366,12 +366,12 @@ class DslTest < Minitest::Test
 
   def test_help_lists_namespaced_commands_with_colons
     cli = build_cli do
-      define :build do
+      task :build do
         desc 'Build'
         proc { |_| }
       end
       namespace :db do
-        define :migrate do
+        task :migrate do
           desc 'Run migrations'
           proc { |_| }
         end
@@ -385,7 +385,7 @@ class DslTest < Minitest::Test
   def test_help_for_namespace_lists_contents
     cli = build_cli do
       namespace :db do
-        define :migrate do
+        task :migrate do
           desc 'Run migrations'
           proc { |_| }
         end
@@ -398,7 +398,7 @@ class DslTest < Minitest::Test
   def test_bare_namespace_is_implicit_help
     cli = build_cli do
       namespace :db do
-        define :migrate do
+        task :migrate do
           desc 'Run migrations'
           proc { |_| }
         end
@@ -413,7 +413,7 @@ class DslTest < Minitest::Test
     cli = build_cli do
       namespace :db do
         namespace :users do
-          define :list do
+          task :list do
             proc { |opts| captured = opts[:args] }
           end
         end
@@ -426,11 +426,11 @@ class DslTest < Minitest::Test
   def test_hammer_invokes_command_from_proc
     log = []
     cli = build_cli do
-      define :build do
+      task :build do
         opt :env, default: 'dev'
         proc { |opts| log << [:build, opts[:env]] }
       end
-      define :deploy do
+      task :deploy do
         proc do |_|
           hammer :build, env: 'prod'
           log << [:deploy]
@@ -446,7 +446,7 @@ class DslTest < Minitest::Test
     cli = build_cli do
       namespace :db do
         namespace :users do
-          define :list do
+          task :list do
             proc { |opts| log << opts[:args] }
           end
         end
@@ -460,10 +460,10 @@ class DslTest < Minitest::Test
     log = []
     cli = build_cli do
       namespace :gem do
-        define :build do
+        task :build do
           proc { |_| log << :build }
         end
-        define :publish do
+        task :publish do
           proc do |_|
             hammer 'gem:build'
             log << :publish
@@ -478,7 +478,7 @@ class DslTest < Minitest::Test
   def test_hammer_opts_become_flags
     captured = nil
     cli = build_cli do
-      define :show do
+      task :show do
         opt :env
         opt :loud, type: :boolean
         proc { |opts| captured = opts }
@@ -492,7 +492,7 @@ class DslTest < Minitest::Test
   def test_hammer_no_prefix_opt_emits_negation
     captured = nil
     cli = build_cli do
-      define :show do
+      task :show do
         opt :cache, type: :boolean, default: true
         proc { |opts| captured = opts[:cache] }
       end
@@ -504,7 +504,7 @@ class DslTest < Minitest::Test
   def test_hammer_false_opt_is_noop
     captured = nil
     cli = build_cli do
-      define :show do
+      task :show do
         opt :cache, type: :boolean, default: true
         proc { |opts| captured = opts[:cache] }
       end
@@ -517,7 +517,7 @@ class DslTest < Minitest::Test
   def test_hammer_underscore_in_opt_becomes_dash
     captured = nil
     cli = build_cli do
-      define :show do
+      task :show do
         opt :dry_run, type: :boolean
         proc { |opts| captured = opts[:dry_run] }
       end
@@ -529,7 +529,7 @@ class DslTest < Minitest::Test
   def test_hammer_works_with_no_opts
     log = []
     cli = build_cli do
-      define :run do
+      task :run do
         proc { |_| log << :ran }
       end
     end
@@ -538,7 +538,7 @@ class DslTest < Minitest::Test
   end
 
   def test_unknown_method_still_raises
-    cli = build_cli { define(:x) { proc { |_| } } }
+    cli = build_cli { task(:x) { proc { |_| } } }
     assert_raises(NoMethodError) { cli.something_else }
   end
 
@@ -547,9 +547,9 @@ class DslTest < Minitest::Test
   def test_chain_separator_runs_each_segment_in_order
     log = []
     cli = build_cli do
-      define(:foo) { proc { |_| log << :foo } }
-      define(:bar) { proc { |_| log << :bar } }
-      define(:baz) { proc { |_| log << :baz } }
+      task(:foo) { proc { |_| log << :foo } }
+      task(:bar) { proc { |_| log << :bar } }
+      task(:baz) { proc { |_| log << :baz } }
     end
     capture { cli.start(%w[foo + bar + baz]) }
     assert_equal %i[foo bar baz], log
@@ -558,11 +558,11 @@ class DslTest < Minitest::Test
   def test_chain_forwards_args_and_flags_per_segment
     captured = []
     cli = build_cli do
-      define :build do
+      task :build do
         opt :env, default: 'dev'
         proc { |opts| captured << [:build, opts[:env], opts[:args]] }
       end
-      define :ship do
+      task :ship do
         opt :force, type: :boolean
         proc { |opts| captured << [:ship, opts[:force], opts[:args]] }
       end
@@ -574,7 +574,7 @@ class DslTest < Minitest::Test
   def test_chain_escape_double_plus_yields_literal_plus_arg
     captured = nil
     cli = build_cli do
-      define :echo do
+      task :echo do
         proc { |opts| captured = opts[:args] }
       end
     end
@@ -586,7 +586,7 @@ class DslTest < Minitest::Test
     # Simulates `hammer echo --foo="a + b"` - shell delivers one token.
     captured = nil
     cli = build_cli do
-      define :echo do
+      task :echo do
         opt :foo
         proc { |opts| captured = opts[:foo] }
       end
@@ -598,14 +598,14 @@ class DslTest < Minitest::Test
   def test_chain_needs_dedupes_across_segments
     log = []
     cli = build_cli do
-      define :env do
+      task :env do
         proc { |_| log << :env }
       end
-      define :build do
+      task :build do
         needs :env
         proc { |_| log << :build }
       end
-      define :deploy do
+      task :deploy do
         needs :env
         proc { |_| log << :deploy }
       end
@@ -618,7 +618,7 @@ class DslTest < Minitest::Test
     captured = nil
     cli = build_cli do
       namespace :db do
-        define :migrate do
+        task :migrate do
           alt :m
           proc { |opts| captured = opts[:args] }
         end
@@ -630,7 +630,7 @@ class DslTest < Minitest::Test
 
   def test_error_inside_proc_exits_1_with_message
     cli = build_cli do
-      define :doomed do
+      task :doomed do
         proc { |_| error 'boom' }
       end
     end
@@ -644,7 +644,7 @@ class DslTest < Minitest::Test
 
   def test_parser_error_exits_1
     cli = build_cli do
-      define :x do
+      task :x do
         opt :env, type: :string, req: true
         proc { |_| }
       end
@@ -660,7 +660,7 @@ class DslTest < Minitest::Test
     captured = nil
     capture do
       Hammer.run(%w[hello dino -l]) do
-        define :hello do
+        task :hello do
           opt :loud, type: :boolean, alias: :l
           proc { |opts| captured = opts }
         end
@@ -722,7 +722,7 @@ class DslTest < Minitest::Test
     log = []
     cli = build_cli do
       before { log << :root }
-      define :x do
+      task :x do
         proc { |_| log << :cmd }
       end
     end
@@ -738,7 +738,7 @@ class DslTest < Minitest::Test
         before { log << :db }
         namespace :users do
           before { log << :users }
-          define :list do
+          task :list do
             proc { |_| log << :cmd }
           end
         end
@@ -753,11 +753,11 @@ class DslTest < Minitest::Test
     cli = build_cli do
       namespace :db do
         before { log << :db }
-        define :migrate do
+        task :migrate do
           proc { |_| log << :migrate }
         end
       end
-      define :build do
+      task :build do
         proc { |_| log << :build }
       end
     end
@@ -771,12 +771,12 @@ class DslTest < Minitest::Test
   def test_before_can_call_hammer_helpers
     log = []
     cli = build_cli do
-      define :setup do
+      task :setup do
         proc { |_| log << :setup }
       end
       namespace :db do
         before { hammer :setup }
-        define :migrate do
+        task :migrate do
           proc { |_| log << :migrate }
         end
       end
@@ -791,7 +791,7 @@ class DslTest < Minitest::Test
       namespace :db do
         before { log << :one }
         before { log << :two }
-        define :x do
+        task :x do
           proc { |_| log << :cmd }
         end
       end
@@ -805,7 +805,7 @@ class DslTest < Minitest::Test
     capture do
       Hammer.run(['x']) do
         before { log << :hook }
-        define :x do
+        task :x do
           proc { |_| log << :cmd }
         end
       end
@@ -817,10 +817,10 @@ class DslTest < Minitest::Test
     log = []
     cli = build_cli do
       before { log << :hook }
-      define :env do
+      task :env do
         proc { |_| log << :env }
       end
-      define :app do
+      task :app do
         needs :env
         proc { |_| log << :app }
       end
@@ -833,7 +833,7 @@ class DslTest < Minitest::Test
     captured = nil
     cli = build_cli do
       before { |opts| captured = opts }
-      define :x do
+      task :x do
         opt :env, default: 'dev'
         proc { |_| }
       end
@@ -846,11 +846,11 @@ class DslTest < Minitest::Test
 
   def test_command_without_desc_is_hidden_from_root_listing
     cli = build_cli do
-      define :visible do
+      task :visible do
         desc 'shown'
         proc { |_| }
       end
-      define :env do
+      task :env do
         proc { |_| }
       end
     end
@@ -862,7 +862,7 @@ class DslTest < Minitest::Test
   def test_hidden_command_is_still_dispatchable
     log = []
     cli = build_cli do
-      define :env do
+      task :env do
         proc { |_| log << :env }
       end
     end
@@ -873,10 +873,10 @@ class DslTest < Minitest::Test
   def test_hidden_command_callable_via_hammer_helper
     log = []
     cli = build_cli do
-      define :env do
+      task :env do
         proc { |_| log << :env }
       end
-      define :run do
+      task :run do
         desc 'run'
         proc do |_|
           hammer :env
@@ -891,11 +891,11 @@ class DslTest < Minitest::Test
   def test_hidden_command_inside_namespace_is_hidden_in_namespace_help
     cli = build_cli do
       namespace :db do
-        define :migrate do
+        task :migrate do
           desc 'shown'
           proc { |_| }
         end
-        define :env do
+        task :env do
           proc { |_| }
         end
       end
@@ -910,10 +910,10 @@ class DslTest < Minitest::Test
   def test_needs_runs_prereq_before_command
     log = []
     cli = build_cli do
-      define :env do
+      task :env do
         proc { |_| log << :env }
       end
-      define :app do
+      task :app do
         needs :env
         proc { |_| log << :app }
       end
@@ -925,14 +925,14 @@ class DslTest < Minitest::Test
   def test_needs_fires_each_prereq_once_per_invocation
     log = []
     cli = build_cli do
-      define :env do
+      task :env do
         proc { |_| log << :env }
       end
-      define :build do
+      task :build do
         needs :env
         proc { |_| log << :build }
       end
-      define :app do
+      task :app do
         needs :env, :build
         proc { |_| log << :app }
       end
@@ -945,11 +945,11 @@ class DslTest < Minitest::Test
     log = []
     cli = build_cli do
       namespace :db do
-        define :env do
+        task :env do
           proc { |_| log << :db_env }
         end
       end
-      define :app do
+      task :app do
         needs 'db:env'
         proc { |_| log << :app }
       end
@@ -960,7 +960,7 @@ class DslTest < Minitest::Test
 
   def test_needs_raises_on_unknown_prereq
     cli = build_cli do
-      define :app do
+      task :app do
         needs :missing
         proc { |_| }
       end
@@ -987,15 +987,15 @@ class DslTest < Minitest::Test
   def test_needs_does_not_leak_across_define
     log = []
     cli = build_cli do
-      define :env do
+      task :env do
         proc { |_| log << :env }
       end
       # needs declared but no consuming `def` -> must be cleared
       needs :env
-      define :first do
+      task :first do
         proc { |_| log << :first }
       end
-      define :second do
+      task :second do
         proc { |_| log << :second }
       end
     end
@@ -1008,7 +1008,7 @@ class DslTest < Minitest::Test
     hits = []
     capture do
       Hammer.run(['s']) do
-        define :server do
+        task :server do
           alt :s
           proc { |_| hits << :ok }
         end
