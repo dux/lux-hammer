@@ -42,10 +42,35 @@ class CliTest < Minitest::Test
   def test_missing_hammerfile_exits_1
     Dir.mktmpdir do |dir|
       Dir.chdir(dir) do
-        _, err, status = capture_exit { Hammer.cli([]) }
+        out, err, status = capture_exit { Hammer.cli([]) }
         assert_equal 1, status
         assert_includes err, 'no Hammerfile found'
+        assert_includes out, '--ai'
       end
+    end
+  end
+
+  def test_ai_help_dumps_agents_md
+    Dir.mktmpdir do |dir|
+      Dir.chdir(dir) do
+        out, _, status = capture_exit { Hammer.cli(['--ai']) }
+        assert_equal 0, status
+        assert_includes out, 'AGENTS.md - lux-hammer'
+        assert_includes out, 'DSL surface'
+      end
+    end
+  end
+
+  def test_ai_help_works_with_hammerfile_present
+    with_hammerfile(<<~'RUBY') do |_|
+      task :hi do
+        proc { |_| say 'HANDLER_FIRED_UNIQUE_MARKER' }
+      end
+    RUBY
+      out, _, status = capture_exit { Hammer.cli(['--ai']) }
+      assert_equal 0, status
+      assert_includes out, 'AGENTS.md - lux-hammer'
+      refute_includes out, 'HANDLER_FIRED_UNIQUE_MARKER'
     end
   end
 

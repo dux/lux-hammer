@@ -619,10 +619,31 @@ class Hammer
     klass.start(argv)
   end
 
+  # Dump the gem's AGENTS.md to stdout - AI-optimized guide for
+  # writing Hammerfiles. Bundled with the gem and resolved relative
+  # to this file so it works from any install location.
+  def self.print_ai_help
+    path = File.expand_path('../AGENTS.md', __dir__)
+    if File.file?(path)
+      puts File.read(path)
+    else
+      Shell.print_error "AGENTS.md not found at #{path}"
+      exit 1
+    end
+  end
+
   # Entry point for the `hammer` binary. Walks up from CWD until it
   # finds a Hammerfile, evaluates it as the block DSL, then dispatches
   # ARGV against the resulting CLI.
+  #
+  # `--ai` is a meta-flag handled here, before Hammerfile lookup,
+  # so it works anywhere (no project required).
   def self.cli(argv = ARGV)
+    if argv.include?('--ai')
+      print_ai_help
+      exit 0
+    end
+
     path = find_hammerfile(Dir.pwd)
     unless path
       Shell.print_error "no Hammerfile found in #{Dir.pwd} or any parent directory"
@@ -649,6 +670,8 @@ class Hammer
           end
         end
       RUBY
+      Shell.say ''
+      Shell.say "tip: run `#{File.basename($PROGRAM_NAME)} --ai` for AI-friendly Hammerfile authoring docs", :gray
       exit 1
     end
 

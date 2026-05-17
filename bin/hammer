@@ -1,9 +1,10 @@
 #!/usr/bin/env ruby
-begin
-  require 'lux-hammer'
-rescue LoadError
-  # dev fallback: running from the repo without the gem installed
-  $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
-  require 'lux-hammer'
+# Prefer the adjacent lib/ when this script lives in a repo checkout
+# (lib/lux-hammer.rb sits next to bin/), otherwise fall back to the
+# installed gem. Otherwise an installed older gem shadows local edits.
+local_lib = File.expand_path('../lib/lux-hammer.rb', __dir__)
+if File.file?(local_lib)
+  $LOAD_PATH.unshift File.dirname(local_lib)
 end
+require 'lux-hammer'
 Hammer.cli(ARGV)
