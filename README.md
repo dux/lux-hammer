@@ -453,7 +453,9 @@ Then:
 hammer db:migrate
 hammer db:users:list
 hammer db                 # bare namespace lists everything under it
+hammer db:                # trailing colon: full per-task help for every command
 hammer db:migrate -h      # per-command help
+hammer :                  # trailing colon at root: full help for every command
 ```
 
 Namespaces nest to any depth. There is no per-level dispatch - the root

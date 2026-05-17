@@ -300,6 +300,19 @@ class Hammer
         return print_help(target)
       end
 
+      # Trailing colon ("db:") -> expanded namespace listing with full
+      # per-command help on every task. Bare ":" expands the root.
+      if name.end_with?(':') && name != ':'
+        bare = name.chomp(':')
+        ns = resolve_namespace(bare)
+        return print_namespace_help(bare, ns, full: true) if ns
+        Shell.print_error("unknown namespace: #{bare}")
+        print_help
+        exit 1
+      elsif name == ':'
+        return print_help(nil, full: true)
+      end
+
       cmd, owner = resolve(name)
       return owner.run_command(cmd, argv, full: name) if cmd
 
@@ -429,27 +442,50 @@ class Hammer
       scan.include?('-h') || scan.include?('--help')
     end
 
-    def print_help(target = nil)
+    def print_help(target = nil, full: false)
       if target
+        # `help ns:` is equivalent to `ns:` - expanded namespace listing.
+        if target.end_with?(':') && target != ':'
+          bare = target.chomp(':')
+          ns = resolve_namespace(bare)
+          return print_namespace_help(bare, ns, full: true) if ns
+          Shell.print_error("unknown: #{target}")
+          return
+        end
         cmd, _ = resolve(target)
         return print_command_help(cmd, target) if cmd
         ns = resolve_namespace(target)
-        return print_namespace_help(target, ns) if ns
+        return print_namespace_help(target, ns, full: full) if ns
         Shell.print_error("unknown: #{target}")
         return
       end
 
       Shell.say "Usage: #{program_name} COMMAND [ARGS]", :cyan
-      Shell.say ''
-      print_command_list(self)
+      if full
+        each_command { |path, c| print_full_block(path, c) unless c.desc.empty? }
+      else
+        Shell.say ''
+        print_command_list(self)
+      end
       print_footer
     end
 
-    def print_namespace_help(prefix, ns)
+    def print_namespace_help(prefix, ns, full: false)
       Shell.say "Usage: #{program_name} #{prefix}:COMMAND [ARGS]", :cyan
-      Shell.say ''
-      print_command_list(ns, prefix)
+      if full
+        ns.each_command(prefix) { |path, c| print_full_block(path, c) unless c.desc.empty? }
+      else
+        Shell.say ''
+        print_command_list(ns, prefix)
+      end
       print_footer
+    end
+
+    # One "task block" for the expanded listing: blank line separator
+    # then the standard per-command help (usage + desc + options + examples).
+    def print_full_block(path, cmd)
+      Shell.say ''
+      print_command_help(cmd, path)
     end
 
     HOMEPAGE ||= 'https://github.com/dux/hammer'.freeze

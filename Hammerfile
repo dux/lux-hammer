@@ -55,7 +55,7 @@ namespace :gem do
   end
 
   task :publish do
-    desc 'Build and push the gem to RubyGems'
+    desc 'Inc ver, build and push the gem to RubyGems'
     proc do
       hammer 'gem:version:inc'
       hammer 'gem:build'
