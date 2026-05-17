@@ -1,16 +1,17 @@
 # hammer
 
-The bastard Frankenstein child of Rake, Thor, and Joshua. Sewn
-together from three good ideas, with the rest of each parent left on
+The bastard Frankenstein child of Rake](https://github.com/ruby/rake),
+[Thor](https://github.com/rails/thor), and [Joshua](https://github.com/dux/joshua).
+Sewn together from three good ideas, with the rest of each parent left on
 the cutting room floor.
 
 Drop a `Hammerfile`, run `hammer`, ship. AI LLM-s love `hammer`.
 
 ```ruby
-namespace :db do                          # Rake-style colon paths
-  task :migrate do                      # Joshua-style task block
+namespace :db do                            # Rake-style colon paths
+  task :migrate do                          # Joshua-style task block
     desc 'Run pending migrations'
-    opt :pretend, type: :boolean, alias: :p   # Thor-style typed opts
+    opt :pretend, type: :boolean, alias: :p # Thor-style typed opts
     proc do |o|
       say.green "migrating pretend=#{o[:pretend].inspect}"
     end

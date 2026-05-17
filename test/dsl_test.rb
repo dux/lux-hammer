@@ -30,7 +30,8 @@ class DslTest < Minitest::Test
       define_method(:server) { |opts| }
     end
     out, = capture { cli.start(['help']) }
-    assert_includes out, 'mycli server (alt: s)'
+    assert_includes out, 'mycli server'
+    assert_includes out, '(alt: s)'
     assert_includes out, 'Server'
   end
 
@@ -218,7 +219,8 @@ class DslTest < Minitest::Test
     end
     out, = capture { cli.start(['help']) }
     assert_includes out, 'mycli build'
-    assert_includes out, 'mycli server (alt: s)'
+    assert_includes out, 'mycli server'
+    assert_includes out, '(alt: s)'
     assert_includes out, 'Build'
     assert_includes out, 'Server'
   end

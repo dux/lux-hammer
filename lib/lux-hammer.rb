@@ -467,6 +467,7 @@ class Hammer
         Shell.say ''
         print_command_list(self)
       end
+      print_global_flags
       print_footer
     end
 
@@ -478,6 +479,7 @@ class Hammer
         Shell.say ''
         print_command_list(ns, prefix)
       end
+      print_global_flags
       print_footer
     end
 
@@ -489,6 +491,16 @@ class Hammer
     end
 
     HOMEPAGE ||= 'https://github.com/dux/hammer'.freeze
+
+    # Global flags only exist when invoked via the `hammer` binary
+    # (see `Hammer.cli`), not for user-built CLIs that call `start`
+    # on their own subclass.
+    def print_global_flags
+      return unless root.instance_variable_get(:@hammer_binary)
+      Shell.say ''
+      Shell.say 'Global:', :yellow
+      Shell.say '  --ai  # Print AGENTS.md (AI-friendly Hammerfile authoring docs)'
+    end
 
     def print_footer
       Shell.say ''
@@ -505,13 +517,13 @@ class Hammer
 
       # group by "section" = everything between the view prefix and the
       # leaf name. Bare leaves go in :root.
-      groups = rows.group_by { |full, _| section_for(full, prefix) }
-      width  = rows.map { |full, c| label_for(full, c).length }.max
+      groups = rows.group_by { |full, _| section_for(full, prefix, klass) }
+      width  = rows.map { |full, _| full.length }.max
       first  = true
 
       if (rooted = groups.delete(:root))
         Shell.say 'Commands:', :yellow
-        emit_rows(rooted.sort_by { |full, _| full }, width)
+        emit_rows(rooted.sort_by { |full, _| [full.count(':'), full] }, width)
         first = false
       end
 
@@ -519,14 +531,14 @@ class Hammer
         Shell.say unless first
         first = false
         Shell.say "#{section}:", :yellow
-        emit_rows(items.sort_by { |full, _| full }, width)
+        emit_rows(items.sort_by { |full, _| [full.count(':'), full] }, width)
       end
     end
 
     def emit_rows(rows, width)
       rows.each do |full, c|
-        label = label_for(full, c)
-        Shell.say "  #{program_name} #{label.ljust(width)}  # #{c.brief}"
+        brief = c.alts.empty? ? c.brief : "#{c.brief} (alt: #{c.alts.join(', ')})"
+        Shell.say "  #{program_name} #{full.ljust(width)}  # #{brief}"
       end
     end
 
@@ -534,17 +546,18 @@ class Hammer
     # for 'db:users:list' viewed from 'db'; :root if the command sits at
     # the view's top level. Only the first segment under the view groups,
     # so deeper paths fold into their top-level section.
-    def section_for(full, prefix)
-      segs = full.split(':')[0..-2]
-      if prefix && !prefix.empty?
-        segs = segs[prefix.split(':').size..] || []
+    #
+    # Exception: a bare command that shares its name with a sibling
+    # namespace (e.g. `mount` alongside a `mount:` namespace) groups
+    # under that namespace's section, not :root.
+    def section_for(full, prefix, klass = nil)
+      segs = full.split(':')
+      segs = segs[prefix.split(':').size..] || [] if prefix && !prefix.empty?
+      if segs.size == 1 && klass && klass.namespaces.key?(segs.first)
+        return segs.first
       end
-      segs.empty? ? :root : segs.first
-    end
-
-    # "db:migrate" or "db:migrate (alt: m)"
-    def label_for(full, cmd)
-      cmd.alts.empty? ? full : "#{full} (alt: #{cmd.alts.join(', ')})"
+      parent = segs[0..-2]
+      parent.empty? ? :root : parent.first
     end
 
     # " URL [ENV] [OPTIONS]" - shows the positional-fill names for
@@ -676,6 +689,9 @@ class Hammer
     end
 
     klass = Class.new(Hammer)
+    # Mark this class as the `hammer` binary's root so help output can
+    # surface binary-only globals like `--ai`.
+    klass.instance_variable_set(:@hammer_binary, true)
     # Resolve before chdir so paths like `bin/foo` stay relative to the
     # cwd the user actually invoked from. `program_name` memoizes.
     klass.program_name
