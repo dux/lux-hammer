@@ -40,7 +40,11 @@ require_relative 'hammer/command_builder'
 class Hammer
   include Shell
 
-  Error ||= Class.new(StandardError)
+  Error          ||= Class.new(StandardError)
+  AmbiguousMatch ||= Class.new(Error)
+
+  # Gem version, read once from the bundled .version file.
+  VERSION ||= File.read(File.expand_path('../.version', __dir__)).strip
 
   class << self
     def inherited(sub)
@@ -295,7 +299,19 @@ class Hammer
       argv = argv.dup
       name = argv.shift
 
-      if name.nil? || name == 'help' || name == '-h' || name == '--help'
+      if name.nil?
+        # Bare invocation of the `hammer` binary: print a gem banner
+        # above the help so users can see which lux-hammer they have.
+        # Skipped for `-h` / `help` (those stay terse) and for user-
+        # built CLIs (their own program name, not lux-hammer).
+        if root.instance_variable_get(:@hammer_binary)
+          Shell.say "lux-hammer #{VERSION}"
+          Shell.say ''
+        end
+        return print_help
+      end
+
+      if name == 'help' || name == '-h' || name == '--help'
         target = argv.shift
         return print_help(target)
       end
@@ -304,8 +320,8 @@ class Hammer
       # per-command help on every task. Bare ":" expands the root.
       if name.end_with?(':') && name != ':'
         bare = name.chomp(':')
-        ns = resolve_namespace(bare)
-        return print_namespace_help(bare, ns, full: true) if ns
+        ns, canonical = resolve_namespace(bare)
+        return print_namespace_help(canonical, ns, full: true) if ns
         Shell.print_error("unknown namespace: #{bare}")
         print_help
         exit 1
@@ -313,42 +329,90 @@ class Hammer
         return print_help(nil, full: true)
       end
 
-      cmd, owner = resolve(name)
-      return owner.run_command(cmd, argv, full: name) if cmd
+      cmd, owner, canonical = resolve(name)
+      return owner.run_command(cmd, argv, full: canonical) if cmd
 
-      ns = resolve_namespace(name)
-      return print_namespace_help(name, ns) if ns
+      ns, canonical = resolve_namespace(name)
+      return print_namespace_help(canonical, ns) if ns
 
       Shell.print_error("unknown command: #{name}")
       print_help
+      exit 1
+    rescue AmbiguousMatch => e
+      Shell.print_error(e.message)
       exit 1
     end
 
     public
 
-    # Find a command by canonical name or alt within this class.
+    # Find a command by canonical name or alt within this class. Falls
+    # back to fuzzy match (prefix first, then substring) when no exact
+    # hit. Raises AmbiguousMatch if the fuzzy pass matches more than one.
     def find_command(name)
-      commands[name.to_s] || commands.values.find { |c| c.matches?(name) }
+      name = name.to_s
+      exact = commands[name] || commands.values.find { |c| c.matches?(name) }
+      return exact if exact
+      fuzzy_pick(name, commands.values, 'command') { |c| [c.name, *c.alts] }
     end
 
-    # Walk "ns1:ns2:cmd" -> [command, owning_class]. Returns [nil, nil]
-    # if any segment is missing or the final segment isn't a command.
+    # Find a namespace by name within this class. Same fuzzy fallback
+    # as find_command.
+    def find_namespace(name)
+      name = name.to_s
+      return namespaces[name] if namespaces.key?(name)
+      pair = fuzzy_pick(name, namespaces.to_a, 'namespace') { |p| [p.first] }
+      pair&.last
+    end
+
+    # Walk "ns1:ns2:cmd" -> [command, owning_class, canonical_path].
+    # Returns [nil, nil, nil] if any segment is missing or the final
+    # segment isn't a command. canonical_path uses the canonical name
+    # of every segment (so a fuzzy `b` resolves to `build` in the path).
     def resolve(path)
       parts = path.to_s.split(':')
       klass = self
+      canonical = []
       parts[0..-2].each do |ns|
-        klass = klass.namespaces[ns] or return [nil, nil]
+        sub = klass.find_namespace(ns) or return [nil, nil, nil]
+        canonical << klass.namespaces.key(sub)
+        klass = sub
       end
       cmd = klass.find_command(parts.last)
-      cmd ? [cmd, klass] : [nil, nil]
+      return [nil, nil, nil] unless cmd
+      canonical << cmd.name
+      [cmd, klass, canonical.join(':')]
     end
 
-    # Walk "ns1:ns2" -> namespace class, or nil if any segment missing.
+    # Walk "ns1:ns2" -> [namespace_class, canonical_path].
+    # Returns [nil, nil] if any segment is missing.
     def resolve_namespace(path)
       parts = path.to_s.split(':')
       klass = self
-      parts.each { |ns| klass = klass.namespaces[ns] or return nil }
-      klass
+      canonical = []
+      parts.each do |ns|
+        sub = klass.find_namespace(ns) or return [nil, nil]
+        canonical << klass.namespaces.key(sub)
+        klass = sub
+      end
+      [klass, canonical.join(':')]
+    end
+
+    # Shared fuzzy matcher used by find_command and find_namespace.
+    # The block returns the strings to match against for each item
+    # (canonical name plus alts for commands, just the key for namespaces).
+    # Tries prefix match first, then substring; raises AmbiguousMatch
+    # when either pass hits more than one item.
+    def fuzzy_pick(name, items, kind, &keys_for)
+      [:start_with?, :include?].each do |op|
+        matches = items.select { |item| keys_for.call(item).any? { |k| k.send(op, name) } }
+        next if matches.empty?
+        if matches.size > 1
+          labels = matches.map { |m| keys_for.call(m).first }.sort
+          raise AmbiguousMatch, "multiple #{kind}s match '#{name}': #{labels.join(', ')}"
+        end
+        return matches.first
+      end
+      nil
     end
 
     # Programmatic dispatch by name. Useful for scripting and tests.
@@ -394,6 +458,7 @@ class Hammer
 
       positional, opts = Parser.new(cmd.options).parse(argv)
       opts[:args] = positional
+      print_run_banner(cmd, full || cmd.name, positional, opts)
       instance = new
       run_before_hooks(instance, opts)
       run_needs(cmd)
@@ -407,6 +472,25 @@ class Hammer
       # backtrace, no per-command help spam.
       Shell.print_error(e.message)
       exit 1
+    end
+
+    # Print a gray "> prog cmd --opt=val ARG" banner before a command
+    # runs. Helps see what was actually picked when fuzzy matching
+    # resolved a partial name. Only opts that differ from their default
+    # are shown; booleans render as `--flag` / `--no-flag`.
+    def print_run_banner(cmd, full, positional, opts)
+      parts = ["#{program_name} #{full}"]
+      cmd.options.each do |o|
+        val = opts[o.name]
+        next if val.nil? || val == o.default
+        if o.boolean?
+          parts << (val ? "--#{o.name}" : "--no-#{o.name}")
+        else
+          parts << "--#{o.name}=#{val}"
+        end
+      end
+      parts.concat(positional)
+      Shell.say "> #{parts.join(' ')}", :gray
     end
 
     # Fire `before` hooks from root down through the namespace chain.
@@ -447,15 +531,15 @@ class Hammer
         # `help ns:` is equivalent to `ns:` - expanded namespace listing.
         if target.end_with?(':') && target != ':'
           bare = target.chomp(':')
-          ns = resolve_namespace(bare)
-          return print_namespace_help(bare, ns, full: true) if ns
+          ns, canonical = resolve_namespace(bare)
+          return print_namespace_help(canonical, ns, full: true) if ns
           Shell.print_error("unknown: #{target}")
           return
         end
-        cmd, _ = resolve(target)
-        return print_command_help(cmd, target) if cmd
-        ns = resolve_namespace(target)
-        return print_namespace_help(target, ns, full: full) if ns
+        cmd, _, canonical = resolve(target)
+        return print_command_help(cmd, canonical) if cmd
+        ns, canonical = resolve_namespace(target)
+        return print_namespace_help(canonical, ns, full: full) if ns
         Shell.print_error("unknown: #{target}")
         return
       end

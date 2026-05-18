@@ -140,6 +140,23 @@ explicit ADR-level discussion. Keys:
 * The root `Hammer` subclass holds `@commands` and `@namespaces`.
 * `resolve('a:b:c')` walks `@namespaces['a'].namespaces['b']` and
   finds command `c` in the last class.
+* Each segment is fuzzy-matched: exact name/alt first, then prefix
+  (`b` -> `build`), then substring (`es` -> `test`). Per-scope: matching
+  only looks at this class's commands/namespaces, not globally across
+  the tree. Ambiguous fuzzy matches raise `Hammer::AmbiguousMatch`,
+  which `dispatch` catches and prints as
+  `multiple commands match 'b': bake, build`. Same fallback applies to
+  namespaces via `find_namespace`.
+* `resolve` and `resolve_namespace` return a `canonical` colon-path
+  alongside the resolved class/command, so help banners and the
+  pre-run banner display the canonical name even when the user typed
+  a fuzzy prefix.
+* Before a command's handler runs, `run_command` prints a gray
+  `> prog cmd --opt=val ARG` banner so it's visible which command was
+  actually picked when fuzzy matching kicks in. Only options that
+  differ from their default are listed; booleans render as `--flag`
+  / `--no-flag`. Help paths (`-h`, bare namespace) short-circuit
+  before the banner.
 * There is **no per-level dispatch**. A namespace is a container, not a
   CLI of its own. Do not reintroduce `subclass.start(remaining_argv)`.
 * `start(argv)` is a two-step pipeline: `split_chain(argv)` (private)

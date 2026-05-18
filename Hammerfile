@@ -76,15 +76,12 @@ end
 task :info do
   desc 'Show project stats'
   proc do
-    version   = File.read('.version').strip
     rb_files  = Dir.glob('lib/**/*.rb')
     tst_files = Dir.glob('test/*_test.rb')
     loc       = rb_files.sum { |f| File.read(f).each_line.count }
     tests     = tst_files.sum { |f| File.read(f).scan(/^\s+def test_/).size }
     sha       = `git rev-parse --short HEAD 2>/dev/null`.strip
 
-    say "lux-hammer #{version}", :cyan
-    say ''
     say "  lib files: #{rb_files.size} (#{loc} LOC)"
     say "  test files: #{tst_files.size} (#{tests} tests)"
     say "  homepage:  https://github.com/dux/hammer"
