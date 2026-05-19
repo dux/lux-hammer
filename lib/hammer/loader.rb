@@ -72,7 +72,7 @@ class Hammer
     def load_one(abs_path)
       return if @loaded[abs_path]
       @loaded[abs_path] = true
-      Builder.new(@target).instance_eval(File.read(abs_path), abs_path)
+      Builder.new(@target).evaluate(File.read(abs_path), abs_path)
     rescue Hammer::Error
       raise
     rescue StandardError => e

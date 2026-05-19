@@ -182,7 +182,7 @@ class Hammer
       # "myapp ns:cmd" with the same prefix everywhere - and so the value
       # captured pre-chdir (see `Hammer.cli`) survives into nested classes.
       sub.instance_variable_set(:@program_name, program_name)
-      sub.class_eval(&block) if block
+      Hammer.with_target(sub) { sub.class_eval(&block) } if block
       @namespaces[name.to_s] = sub
     end
 
@@ -237,6 +237,18 @@ class Hammer
     # `load` from inside a fragment is safe and idempotent.
     def loader
       @loader ||= Loader.new(self)
+    end
+
+    # Push `klass` as the current Hammer target for the duration of the
+    # block. Top-level DSL methods (`task`, `namespace`, `before` - see
+    # `Hammer::DSL`) read this thread-local, so files `require`d from
+    # inside a Hammerfile register against the right target.
+    def with_target(klass)
+      prev = Thread.current[:hammer_target]
+      Thread.current[:hammer_target] = klass
+      yield
+    ensure
+      Thread.current[:hammer_target] = prev
     end
 
     # Load Hammerfile fragments and register their commands on this
@@ -704,11 +716,11 @@ class Hammer
   def self.run(argv = ARGV, &block)
     klass = Class.new(Hammer)
     if block
-      Builder.new(klass).instance_eval(&block)
+      Builder.new(klass).evaluate(&block)
     else
       hf = File.join(Dir.pwd, 'Hammerfile')
       if File.file?(hf)
-        Builder.new(klass).instance_eval(File.read(hf), hf)
+        Builder.new(klass).evaluate(File.read(hf), hf)
       else
         klass.loader.load(Dir.pwd, [], auto: true)
       end
@@ -783,7 +795,7 @@ class Hammer
     # chdir into the Hammerfile's directory for the entire run so commands
     # operate on the project root (Rake-style).
     Dir.chdir(File.dirname(path))
-    Builder.new(klass).instance_eval(File.read(path), path)
+    Builder.new(klass).evaluate(File.read(path), path)
     klass.start(argv)
   end
 
