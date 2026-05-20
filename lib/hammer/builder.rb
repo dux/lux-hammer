@@ -21,6 +21,11 @@ class Hammer
       @klass.before(&block)
     end
 
+    # Opt out of auto `.env` loading in `Hammer.cli`. Default is on.
+    def dotenv(flag = true)
+      @klass.dotenv(flag)
+    end
+
     # Same surface as `Hammer.load`. Resolved relative to the file that
     # called us, so `load auto: true` inside a Hammerfile picks up
     # *_hammer.rb under the Hammerfile's directory.
@@ -46,7 +51,7 @@ class Hammer
   # still call `task`, `namespace`, and `before`. Delegates to whichever
   # Hammer subclass is currently being evaluated.
   module DSL
-    %i[task namespace before].each do |m|
+    %i[task namespace before dotenv].each do |m|
       define_method(m) do |*args, &block|
         target = Thread.current[:hammer_target]
         raise Hammer::Error, "`#{m}` called outside a Hammer context " \

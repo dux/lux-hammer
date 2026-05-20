@@ -469,7 +469,7 @@ runs before every command in that scope (and its nested namespaces).
 Hooks fire outer -> inner, then the command's handler:
 
 ```ruby
-before { Dotenv.load }                  # runs before every command
+before { hammer :env }                  # runs before every command
 
 namespace :db do
   before { hammer :env }                # runs before every db:* command
@@ -477,6 +477,15 @@ namespace :db do
     proc { |opts| ... }                 # no boilerplate require inside
   end
 end
+```
+
+`.env` and `.env.local` next to the `Hammerfile` are loaded
+automatically by the `hammer` binary - no `before` hook needed.
+Shell-set vars are never overwritten, and `.env.local` overrides
+`.env`. Put `dotenv false` at the top of the Hammerfile to opt out:
+
+```ruby
+dotenv false                            # disable auto .env loading
 ```
 
 `before` is intentionally not available inside `task` - the proc body

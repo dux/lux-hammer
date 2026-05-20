@@ -1,9 +1,9 @@
 class Hammer
   # Single option/flag definition.
   class Option
-    attr_reader :name, :type, :default, :desc, :aliases, :required
+    attr_reader :name, :type, :default, :desc, :aliases, :required, :placeholder
 
-    ALLOWED_KEYS    ||= %i[type default desc alias req].freeze
+    ALLOWED_KEYS    ||= %i[type default desc alias req placeholder].freeze
     RESERVED_FLAGS  ||= %w[-h --help].freeze
 
     def initialize(name, **opts)
@@ -13,12 +13,15 @@ class Hammer
               "unknown opt parameter(s) for :#{name}: #{bad.join(', ')}. " \
               "allowed: #{ALLOWED_KEYS.join(', ')}"
       end
-      @name     = name.to_sym
-      @type     = opts[:type] || :string
-      @default  = opts[:default]
-      @desc     = opts[:desc]
-      @aliases  = Array(opts[:alias]).map { |a| Option.normalize_alias(a) }
-      @required = opts[:req] ? true : false
+      @name        = name.to_sym
+      @type        = opts[:type] || :string
+      @default     = opts[:default]
+      @desc        = opts[:desc]
+      @aliases     = Array(opts[:alias]).map { |a| Option.normalize_alias(a) }
+      @required    = opts[:req] ? true : false
+      # Custom usage placeholder, e.g. `placeholder: 't/f'` -> `--log t/f`.
+      # Falls back to uppercased name (`--log LOG`) when nil.
+      @placeholder = opts[:placeholder]
 
       # Reserve -h / --help so every command supports them uniformly.
       if RESERVED_FLAGS.include?(switch)
@@ -60,7 +63,7 @@ class Hammer
 
     def usage
       flag = switch
-      flag += " #{name.to_s.upcase}" unless boolean?
+      flag += " #{placeholder || name.to_s.upcase}" unless boolean?
       line = aliases.empty? ? flag : "#{aliases.join(', ')}, #{flag}"
       suffix = annotation
       line = "#{line.ljust(28)} #{desc}" if desc

@@ -5,6 +5,7 @@ require_relative 'hammer/command'
 require_relative 'hammer/loader'
 require_relative 'hammer/builder'
 require_relative 'hammer/command_builder'
+require_relative 'hammer/dotenv'
 
 # Thor-inspired tiny CLI builder.
 #
@@ -201,6 +202,18 @@ class Hammer
 
     def before_hooks
       @before_hooks
+    end
+
+    # Toggle auto-loading of `.env` / `.env.local` for the `hammer`
+    # binary. Default is ON. Call `dotenv false` at the top of a
+    # Hammerfile to suppress. No-op for standalone `MyCli.start` -
+    # auto-load only fires from `Hammer.cli`.
+    def dotenv(flag = true)
+      @dotenv_enabled = flag
+    end
+
+    def dotenv_enabled?
+      @dotenv_enabled != false
     end
 
     def parent
@@ -796,6 +809,10 @@ class Hammer
     # operate on the project root (Rake-style).
     Dir.chdir(File.dirname(path))
     Builder.new(klass).evaluate(File.read(path), path)
+    # Auto-load `.env` / `.env.local` after eval so a top-level
+    # `dotenv false` in the Hammerfile can suppress it. Trade-off: vars
+    # are NOT visible during Hammerfile evaluation, only inside handlers.
+    Hammer::Dotenv.load(Dir.pwd) if klass.dotenv_enabled?
     klass.start(argv)
   end
 

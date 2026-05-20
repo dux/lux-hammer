@@ -84,6 +84,12 @@ At class or `Hammerfile` scope:
 
 * `task :name do ... end`
 * `namespace :name do ... end`
+* `dotenv false` - opt out of auto `.env` / `.env.local` loading.
+  Only meaningful from the `hammer` binary (`Hammer.cli`); the load
+  happens after Hammerfile evaluation, before dispatch. Shell-set vars
+  always win (`ENV[k] ||= v`). For full dotenv-gem features
+  (interpolation, multiline) keep `dotenv false` and call `Dotenv.load`
+  from a `before` hook instead.
 * `load` / `load auto: true` / `load 'path/file.rb'` / `load 'glob/*.rb'` /
   `load 'some/dir'` - pull in Hammerfile fragments from `*_hammer.rb`
   files. Paths resolve relative to the caller's file. A directory
