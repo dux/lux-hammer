@@ -388,6 +388,20 @@ class Hammer
       pair&.last
     end
 
+    # Returns the command at the parent that shares its name with this
+    # namespace. E.g. for path "gem:version" returns the `version` command
+    # in the `gem` namespace (if defined), so `gem:version:` listings can
+    # include `gem:version` itself at the top.
+    def find_namespace_sibling(canonical)
+      parts = canonical.to_s.split(':')
+      return nil if parts.empty?
+      parent = self
+      parts[0..-2].each do |seg|
+        parent = parent.namespaces[seg] or return nil
+      end
+      parent.commands[parts.last]
+    end
+
     # Walk "ns1:ns2:cmd" -> [command, owning_class, canonical_path].
     # Returns [nil, nil, nil] if any segment is missing or the final
     # segment isn't a command. canonical_path uses the canonical name
@@ -581,11 +595,15 @@ class Hammer
 
     def print_namespace_help(prefix, ns, full: false)
       Shell.say "Usage: #{program_name} #{prefix}:COMMAND [ARGS]", :cyan
-      if full
-        ns.each_command(prefix) { |path, c| print_full_block(path, c) unless c.desc.empty? }
-      else
+      rows = []
+      sibling = find_namespace_sibling(prefix)
+      rows << [prefix, sibling] if sibling && !sibling.desc.empty?
+      ns.each_command(prefix) { |path, c| rows << [path, c] unless c.desc.empty? }
+      unless rows.empty?
         Shell.say ''
-        print_command_list(ns, prefix)
+        Shell.say 'Commands:', :yellow
+        width = rows.map { |path, _| path.length }.max
+        emit_rows(rows.sort_by { |path, _| [path.count(':'), path] }, width)
       end
       print_global_flags
       print_footer
