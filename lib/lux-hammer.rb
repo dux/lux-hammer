@@ -341,17 +341,16 @@ class Hammer
         return print_help(target)
       end
 
-      # Trailing colon ("db:") -> expanded namespace listing with full
-      # per-command help on every task. Bare ":" expands the root.
+      # Trailing colon ("db:") -> namespace listing. Bare ":" lists root.
       if name.end_with?(':') && name != ':'
         bare = name.chomp(':')
         ns, canonical = resolve_namespace(bare)
-        return print_namespace_help(canonical, ns, full: true) if ns
+        return print_namespace_help(canonical, ns) if ns
         Shell.print_error("unknown namespace: #{bare}")
         print_help
         exit 1
       elsif name == ':'
-        return print_help(nil, full: true)
+        return print_help
       end
 
       cmd, owner, canonical = resolve(name)
@@ -553,11 +552,11 @@ class Hammer
 
     def print_help(target = nil, full: false)
       if target
-        # `help ns:` is equivalent to `ns:` - expanded namespace listing.
+        # `help ns:` is equivalent to `ns:` - namespace listing.
         if target.end_with?(':') && target != ':'
           bare = target.chomp(':')
           ns, canonical = resolve_namespace(bare)
-          return print_namespace_help(canonical, ns, full: true) if ns
+          return print_namespace_help(canonical, ns) if ns
           Shell.print_error("unknown: #{target}")
           return
         end
