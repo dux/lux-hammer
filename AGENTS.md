@@ -182,7 +182,10 @@ explicit ADR-level discussion. Keys:
   is the whole API. `Hammer.cli` warms the cache before chdir-ing into
   the Hammerfile's directory so the resolved name stays relative to the
   cwd the user invoked from.
-* `hammer` (no args), `hammer -h`, and `hammer --help` all print top-level help.
+* `hammer` (no args) prints just the command listing (with a top gray
+  `lux-hammer VERSION - <homepage>` banner for the hammer binary).
+* `hammer -h` / `hammer --help` adds global flags, a small Hammerfile
+  example, and the footer link on top of the same listing.
 * `hammer COMMAND -h` / `--help` prints per-command help (reserved on every command).
 * Commands listed flat with colon paths, grouped by top-level namespace.
 * Bare namespace (`hammer db`) prints the same listing scoped to that

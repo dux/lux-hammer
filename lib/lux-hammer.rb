@@ -325,20 +325,12 @@ class Hammer
       name = argv.shift
 
       if name.nil?
-        # Bare invocation of the `hammer` binary: print a gem banner
-        # above the help so users can see which lux-hammer they have.
-        # Skipped for `-h` / `help` (those stay terse) and for user-
-        # built CLIs (their own program name, not lux-hammer).
-        if root.instance_variable_get(:@hammer_binary)
-          Shell.say "lux-hammer #{VERSION}"
-          Shell.say ''
-        end
         return print_help
       end
 
       if name == 'help' || name == '-h' || name == '--help'
         target = argv.shift
-        return print_help(target)
+        return print_help(target, extended: true)
       end
 
       # Trailing colon ("db:") -> namespace listing. Bare ":" lists root.
@@ -564,24 +556,29 @@ class Hammer
       scan.include?('-h') || scan.include?('--help')
     end
 
-    def print_help(target = nil, full: false)
+    # `extended: true` is the verbose `help` / `-h` / `--help` form -
+    # appends global flags, the GitHub footer, and (for the hammer binary)
+    # a Hammerfile example. Bare invocation passes `extended: false` so
+    # the no-args output stays a clean command listing.
+    def print_help(target = nil, full: false, extended: false)
       if target
         # `help ns:` is equivalent to `ns:` - namespace listing.
         if target.end_with?(':') && target != ':'
           bare = target.chomp(':')
           ns, canonical = resolve_namespace(bare)
-          return print_namespace_help(canonical, ns) if ns
+          return print_namespace_help(canonical, ns, extended: extended) if ns
           Shell.print_error("unknown: #{target}")
           return
         end
         cmd, _, canonical = resolve(target)
         return print_command_help(cmd, canonical) if cmd
         ns, canonical = resolve_namespace(target)
-        return print_namespace_help(canonical, ns, full: full) if ns
+        return print_namespace_help(canonical, ns, full: full, extended: extended) if ns
         Shell.print_error("unknown: #{target}")
         return
       end
 
+      print_top_banner
       Shell.say "Usage: #{program_name} COMMAND [ARGS]", :cyan
       if full
         each_command { |path, c| print_full_block(path, c) unless c.desc.empty? }
@@ -589,11 +586,10 @@ class Hammer
         Shell.say ''
         print_command_list(self)
       end
-      print_global_flags
-      print_footer
+      print_extras if extended
     end
 
-    def print_namespace_help(prefix, ns, full: false)
+    def print_namespace_help(prefix, ns, full: false, extended: false)
       Shell.say "Usage: #{program_name} #{prefix}:COMMAND [ARGS]", :cyan
       rows = []
       sibling = find_namespace_sibling(prefix)
@@ -605,8 +601,7 @@ class Hammer
         width = rows.map { |path, _| path.length }.max
         emit_rows(rows.sort_by { |path, _| [path.count(':'), path] }, width)
       end
-      print_global_flags
-      print_footer
+      print_extras if extended
     end
 
     # One "task block" for the expanded listing: blank line separator
@@ -618,6 +613,27 @@ class Hammer
 
     HOMEPAGE ||= 'https://github.com/dux/hammer'.freeze
 
+    # Gray "lux-hammer X.Y.Z - <homepage>" line shown above top-level help
+    # in both bare-invocation and `--help` modes, so the link is always
+    # one glance away. User CLIs skip it (the lux-hammer name/link is
+    # irrelevant outside the `hammer` binary).
+    def print_top_banner
+      return unless root.instance_variable_get(:@hammer_binary)
+      Shell.say "lux-hammer #{VERSION} - #{HOMEPAGE}", :gray
+      Shell.say ''
+    end
+
+    # Extras shown only in the extended (`help` / `-h` / `--help`) view:
+    # global flags, GitHub footer, and a Hammerfile example for the
+    # `hammer` binary. The footer is skipped for the hammer binary
+    # because `print_top_banner` already surfaces the same link.
+    def print_extras
+      hammer_bin = root.instance_variable_get(:@hammer_binary)
+      print_global_flags
+      print_hammerfile_example if hammer_bin
+      print_footer unless hammer_bin
+    end
+
     # Global flags only exist when invoked via the `hammer` binary
     # (see `Hammer.cli`), not for user-built CLIs that call `start`
     # on their own subclass.
@@ -625,12 +641,41 @@ class Hammer
       return unless root.instance_variable_get(:@hammer_binary)
       Shell.say ''
       Shell.say 'Global:', :yellow
-      Shell.say '  --ai  # Print AGENTS.md (AI-friendly Hammerfile authoring docs)'
+      Shell.say '  --ai  # Print AGENTS.md - AI-friendly Hammerfile authoring docs'
     end
 
     def print_footer
       Shell.say ''
       Shell.say "powered by hammer - #{HOMEPAGE}", :gray
+    end
+
+    # Small Hammerfile cheat-sheet shown under `hammer --help`. Touches
+    # the main surface area (task/desc/example/opt, namespace, before,
+    # needs, sh, say) without trying to be exhaustive - that's --ai's job.
+    def print_hammerfile_example
+      Shell.say ''
+      Shell.say 'Hammerfile example:', :yellow
+      Shell.say <<~RUBY
+          task :hello do
+            desc    'Greet someone'
+            example 'hello world --loud'
+            opt :loud, type: :boolean, alias: :l
+            proc do |opts|
+              msg = "hello \#{opts[:args].first || 'world'}"
+              say(opts[:loud] ? msg.upcase : msg, :cyan)
+            end
+          end
+
+          namespace :db do
+            before { hammer :env }
+
+            task :migrate do
+              desc  'Run migrations'
+              needs 'db:check'
+              proc  { sh 'bin/rails db:migrate' }
+            end
+          end
+      RUBY
     end
 
     def print_command_list(klass, prefix = nil)

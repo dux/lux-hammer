@@ -94,9 +94,13 @@ class Hammer
       return choose_numbered(items) unless $stdin.tty? && $stdin.respond_to?(:raw)
 
       selected = 0
+      # In raw mode \n is not translated to \r\n, so the picker uses \r\n
+      # explicitly. The initial draw happens in cooked mode but \r\n is
+      # harmless there.
       redraw = lambda do |highlight = :cyan|
         items.each_with_index do |item, i|
-          puts(i == selected ? paint("> #{item}", highlight) : "  #{item}")
+          line = i == selected ? paint("> #{item}", highlight) : "  #{item}"
+          $stdout.print "#{line}\r\n"
         end
       end
       redraw.call
@@ -109,11 +113,11 @@ class Hammer
             case ch
             when "\r", "\n"
               # Collapse the list to the chosen line, in green.
-              $stdout.print "\e[#{items.size}A\e[J"
-              puts paint("> #{items[selected]}", :green)
+              $stdout.print "\e[#{items.size}A\r\e[J"
+              $stdout.print "#{paint("> #{items[selected]}", :green)}\r\n"
               return selected
             when "\x03", 'q' # Ctrl-C, q
-              $stdout.print "\e[#{items.size}A\e[J"
+              $stdout.print "\e[#{items.size}A\r\e[J"
               return nil
             when "\e"
               # ESC may stand alone or start an arrow sequence \e[A / \e[B.
@@ -123,13 +127,13 @@ class Hammer
                 when 'B' then selected = (selected + 1) % items.size
                 end
               else
-                $stdout.print "\e[#{items.size}A\e[J"
+                $stdout.print "\e[#{items.size}A\r\e[J"
                 return nil
               end
             when 'k' then selected = (selected - 1) % items.size
             when 'j' then selected = (selected + 1) % items.size
             end
-            $stdout.print "\e[#{items.size}A\e[J"
+            $stdout.print "\e[#{items.size}A\r\e[J"
             redraw.call
           end
         end
