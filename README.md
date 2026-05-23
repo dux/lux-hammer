@@ -63,6 +63,19 @@ gem install lux-hammer
 
 This installs the `hammer` binary and exposes `require 'lux-hammer'`.
 
+### Install from GitHub (latest main)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dux/hammer/main/install.sh | bash
+```
+
+Clones into `~/.local/share/lux-hammer` (override with `LUX_HAMMER_DIR=`),
+builds the gem, and installs it. Re-run any time, or use:
+
+```sh
+hammer --update   # git pull main + rebuild + reinstall
+```
+
 ## Quick start
 
 Create a `Hammerfile` in your project root:

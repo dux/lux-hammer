@@ -641,7 +641,8 @@ class Hammer
       return unless root.instance_variable_get(:@hammer_binary)
       Shell.say ''
       Shell.say 'Global:', :yellow
-      Shell.say '  --ai  # Print AGENTS.md - AI-friendly Hammerfile authoring docs'
+      Shell.say '  --ai      # Print AGENTS.md - AI-friendly Hammerfile authoring docs'
+      Shell.say '  --update  # Update lux-hammer from github main (requires install.sh checkout)'
     end
 
     def print_footer
@@ -816,6 +817,42 @@ class Hammer
     end
   end
 
+  # Default install dir used by install.sh and `hammer --update`.
+  SELF_UPDATE_DIR  ||= File.expand_path('~/.local/share/lux-hammer')
+  SELF_UPDATE_REPO ||= 'https://github.com/dux/hammer.git'
+  SELF_INSTALL_URL ||= 'https://raw.githubusercontent.com/dux/hammer/main/install.sh'
+
+  # `hammer --update`: pull main in the install-script checkout and
+  # reinstall the gem. Assumes the install.sh layout - if the dir is
+  # missing, point the user at the curl-pipe installer.
+  def self.self_update
+    dir = ENV['LUX_HAMMER_DIR'] || SELF_UPDATE_DIR
+    unless File.directory?(File.join(dir, '.git'))
+      Shell.print_error "no lux-hammer git checkout at #{dir}"
+      Shell.say 'reinstall with:', :yellow
+      Shell.say "  curl -fsSL #{SELF_INSTALL_URL} | bash"
+      exit 1
+    end
+
+    Shell.say "* updating lux-hammer at #{dir}", :cyan
+    Dir.chdir(dir) do
+      run_or_exit('git', 'fetch', '--quiet', 'origin', 'main')
+      run_or_exit('git', 'reset', '--quiet', '--hard', 'origin/main')
+      version = File.read('.version').strip
+      gem_file = "lux-hammer-#{version}.gem"
+      run_or_exit('gem', 'build', 'lux-hammer.gemspec', out: File::NULL)
+      run_or_exit('gem', 'install', '--quiet', gem_file)
+      File.unlink(gem_file) if File.exist?(gem_file)
+      Shell.say "* lux-hammer #{version} installed", :green
+    end
+  end
+
+  def self.run_or_exit(*cmd, **opts)
+    return if system(*cmd, **opts)
+    Shell.print_error "command failed: #{cmd.join(' ')}"
+    exit 1
+  end
+
   # Entry point for the `hammer` binary. Walks up from CWD until it
   # finds a Hammerfile, evaluates it as the block DSL, then dispatches
   # ARGV against the resulting CLI.
@@ -825,6 +862,11 @@ class Hammer
   def self.cli(argv = ARGV)
     if argv.include?('--ai')
       print_ai_help
+      exit 0
+    end
+
+    if argv.include?('--update')
+      self_update
       exit 0
     end
 
