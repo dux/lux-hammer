@@ -483,6 +483,10 @@ hammer :                  # trailing colon at root: full help for every command
 Namespaces nest to any depth. There is no per-level dispatch - the root
 parses the whole colon path and walks the namespace tree.
 
+The `self:` namespace is reserved for hammer's own built-in commands
+(see [Recipes](#recipes-shareable-mini-clis-shipped-with-hammer)
+below). Defining `namespace :self` in a Hammerfile raises an error.
+
 ## Pre-hooks (`before`)
 
 A `before do ... end` block at the root scope or inside a `namespace`
@@ -990,6 +994,78 @@ Usage: hammer db:users:create EMAIL [OPTIONS]
 Options:
   --email EMAIL (required)
   --admin
+```
+
+## Recipes (shareable mini-CLIs shipped with hammer)
+
+A **recipe** is a standalone Hammerfile-style script bundled inside the
+`lux-hammer` gem under `recipes/`. Each recipe is exposed as its own
+top-level binary in your `PATH` - so `srt` becomes a real command, not
+`hammer srt:shift`.
+
+Listing what's available:
+
+```sh
+$ hammer self:recipe
+gem:
+  srt  # Subtitle (.srt) toolkit - shift timestamps, show stats
+         [install: hammer self:recipe install srt]
+```
+
+Installing one (you control the path; nothing is written for you):
+
+```sh
+$ hammer self:recipe install srt > ~/bin/srt && chmod +x ~/bin/srt
+$ srt --help
+Usage: srt COMMAND [ARGS]
+
+  Tiny .srt subtitle helper.
+
+Commands:
+  srt info   # Print cue count and total duration
+  srt shift  # Shift every timestamp by N seconds
+```
+
+The stub is a 3-line Ruby wrapper that re-enters lux-hammer at runtime,
+so the recipe always runs the version currently in the gem.
+
+### Authoring your own
+
+Drop a plain `.rb` file in `~/.config/hammer/recipes/`. The first
+`# desc: ...` comment is what shows in `hammer self:recipe`. The file
+body uses the same DSL as a Hammerfile - `task`, `namespace`, `before`,
+`load`. Example `~/.config/hammer/recipes/json.rb`:
+
+```ruby
+# desc: tiny JSON pretty-printer / minifier
+
+task :pretty do
+  desc 'Pretty-print JSON from stdin or a file'
+  proc do |opts|
+    require 'json'
+    src = opts[:args].first ? File.read(opts[:args].first) : $stdin.read
+    puts JSON.pretty_generate(JSON.parse(src))
+  end
+end
+```
+
+Install it the same way:
+
+```sh
+$ hammer self:recipe install json > ~/bin/json && chmod +x ~/bin/json
+```
+
+User-dir recipes override gem recipes with the same name, so you can
+fork without forking.
+
+### Other `self:recipe` actions
+
+```sh
+hammer self:recipe              # list all
+hammer self:recipe install      # interactive picker, then prints stub
+hammer self:recipe show <NAME>  # cat the recipe source
+hammer self:recipe path <NAME>  # absolute path
+hammer self:recipe edit <NAME>  # open in $EDITOR (copies gem -> user dir first)
 ```
 
 ## Programmatic use

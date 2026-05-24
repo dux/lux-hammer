@@ -44,6 +44,9 @@ lib/hammer/command.rb       # One registered command (name, opts, alts, handler)
 lib/hammer/loader.rb        # `*_hammer.rb` fragment loader (auto/glob/file)
 lib/hammer/builder.rb       # Block-DSL context (Hammerfile / Hammer.run)
 lib/hammer/command_builder.rb # `task :name do ... end` context
+lib/hammer/recipe.rb        # Recipe discovery (gem + user dir, desc, stub)
+lib/hammer/builtins.rb      # Lazy-loaded `self:` namespace (recipe, ai, update)
+recipes/                    # Bundled recipes (each `<name>.rb` -> a bin via stub)
 test/dsl_test.rb            # DSL surface, dispatch, help formatting
 test/load_test.rb           # `load` / `*_hammer.rb` fragment loader
 test/parser_test.rb         # ARGV parsing edge cases
@@ -96,7 +99,9 @@ At Hammerfile (block-DSL) top-level scope only:
 At class or `Hammerfile` scope:
 
 * `task :name do ... end`
-* `namespace :name do ... end`
+* `namespace :name do ... end` - `:self` is reserved for the `hammer`
+  binary's built-in namespace (see `lib/hammer/builtins.rb`). Defining
+  it from user code raises.
 * `dotenv false` - opt out of auto `.env` / `.env.local` loading.
   Only meaningful from the `hammer` binary (`Hammer.cli`); the load
   happens after Hammerfile evaluation, before dispatch. Shell-set vars
@@ -138,9 +143,15 @@ Runtime cross-invocation:
   (`bin/hammer`).
 * `Hammer.cli(argv = ARGV)` - internal entry for `bin/hammer` only:
   walks up from `Dir.pwd` for a `Hammerfile`, chdirs into its dir,
-  errors if none found anywhere up the tree. Not part of the
-  user-facing surface - don't recommend it in examples; `Hammer.run`
-  is what library users should reach for.
+  errors if none found anywhere up the tree. Also lazy-registers the
+  `self:` namespace when argv shows the user wants help or a
+  `self:`-prefixed command. Not part of the user-facing surface -
+  don't recommend it in examples; `Hammer.run` is what library users
+  should reach for.
+* `Hammer.recipe(name, argv = ARGV)` - entry for recipe stubs in PATH.
+  Loads `<gem>/recipes/<name>.rb` (or its user-dir override), runs as
+  a standalone CLI with `program_name = name`. No Hammerfile lookup,
+  no chdir, no dotenv auto-load. See `lib/hammer/recipe.rb`.
 * `class MyCli < Hammer; ... end; MyCli.start(ARGV)` - classic class
   DSL. `.start` is the dispatch primitive everything else funnels into.
 
