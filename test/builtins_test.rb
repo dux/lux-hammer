@@ -13,10 +13,15 @@ class BuiltinsTest < Minitest::Test
   # ----- trigger detection -------------------------------------------
 
   def test_triggered_on_help_variants
-    assert Hammer.builtins_triggered?([])
     assert Hammer.builtins_triggered?(['--help'])
     assert Hammer.builtins_triggered?(['-h'])
     assert Hammer.builtins_triggered?(['help'])
+  end
+
+  def test_not_triggered_on_bare_invocation
+    # Bare `hammer` shows the project listing without `self:` or `Recipes:` -
+    # those are reserved for explicit `--help` / `-h` / `help`.
+    refute Hammer.builtins_triggered?([])
   end
 
   def test_triggered_on_self_prefix
@@ -180,13 +185,85 @@ class BuiltinsTest < Minitest::Test
     Hammer.singleton_class.send(:remove_method, :__orig_self_update) if Hammer.singleton_class.method_defined?(:__orig_self_update)
   end
 
-  # ----- Recipes: section in help ------------------------------------
+  # ----- self: + Recipes: visibility contract ------------------------
+  #
+  # Both sections appear ONLY at the root help view and ONLY when the
+  # user explicitly asked for help (`-h` / `--help` / `help`). Bare
+  # `hammer` and namespace listings stay clean. This is project-listing
+  # ergonomics: `self:` / Recipes: are tool-meta, not project commands.
 
-  def test_help_includes_recipes_section
-    with_hammerfile("task :x do; desc 'X'; proc { |_| }; end\n") do
+  HF ||= "task :x do; desc 'X'; proc { |_| }; end\n" \
+         "namespace :gem do; task :build do; desc 'B'; proc { |_| }; end; end\n"
+
+  def test_bare_hammer_hides_self_namespace
+    with_hammerfile(HF) do
+      out, = capture { Hammer.cli([]) }
+      refute_includes out, 'self:'
+      refute_includes out, 'self:ai'
+    end
+  end
+
+  def test_bare_hammer_hides_recipes_section
+    with_hammerfile(HF) do
+      out, = capture { Hammer.cli([]) }
+      refute_includes out, 'Recipes:'
+      refute_includes out, 'srt'
+    end
+  end
+
+  def test_help_flag_shows_self_and_recipes
+    with_hammerfile(HF) do
       out, = capture { Hammer.cli(['--help']) }
+      assert_includes out, 'self:'
+      assert_includes out, 'self:ai'
       assert_includes out, 'Recipes:'
       assert_includes out, 'srt'
     end
+  end
+
+  def test_short_help_flag_shows_self_and_recipes
+    with_hammerfile(HF) do
+      out, = capture { Hammer.cli(['-h']) }
+      assert_includes out, 'self:'
+      assert_includes out, 'Recipes:'
+    end
+  end
+
+  def test_help_word_shows_self_and_recipes
+    with_hammerfile(HF) do
+      out, = capture { Hammer.cli(['help']) }
+      assert_includes out, 'self:'
+      assert_includes out, 'Recipes:'
+    end
+  end
+
+  def test_namespace_listing_hides_self_and_recipes
+    # `hammer gem:` is a namespace help view, not root - it must not
+    # leak the tool-meta sections even though the binary is the hammer
+    # one. Same goes for `hammer help gem`.
+    with_hammerfile(HF) do
+      out, = capture { Hammer.cli(['gem:']) }
+      refute_includes out, 'self:'
+      refute_includes out, 'Recipes:'
+      refute_includes out, 'srt'
+
+      out, = capture { Hammer.cli(['help', 'gem']) }
+      refute_includes out, 'self:'
+      refute_includes out, 'Recipes:'
+    end
+  end
+
+  def test_user_cli_never_shows_self_or_recipes
+    # Subclassing Hammer directly (no @hammer_binary flag) must never
+    # surface the tool-meta sections, regardless of --help.
+    klass = Class.new(Hammer) do
+      task :hello do
+        desc 'greet'
+        proc { |_| }
+      end
+    end
+    out, = capture { klass.start(['--help']) }
+    refute_includes out, 'self:'
+    refute_includes out, 'Recipes:'
   end
 end

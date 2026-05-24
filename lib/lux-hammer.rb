@@ -606,7 +606,7 @@ class Hammer
         Shell.say ''
         print_command_list(self)
       end
-      print_recipes_section if root.instance_variable_get(:@hammer_binary)
+      print_recipes_section if extended && root.instance_variable_get(:@hammer_binary)
       print_extras if extended
     end
 
@@ -629,6 +629,11 @@ class Hammer
       end
     end
 
+    # `extended:` is accepted for parity with `print_help` but intentionally
+    # not used here - the global-flags / Hammerfile-example / footer block
+    # is root-help-only. A namespace listing is just the commands under
+    # that prefix; tool-meta noise (self:, Recipes:, --update alias) is
+    # reserved for `hammer --help` at the top level.
     def print_namespace_help(prefix, ns, full: false, extended: false)
       Shell.say "Usage: #{program_name} #{prefix}:COMMAND [ARGS]", :cyan
       rows = []
@@ -641,7 +646,6 @@ class Hammer
         width = rows.map { |path, _| path.length }.max
         emit_rows(rows.sort_by { |path, _| [path.count(':'), path] }, width)
       end
-      print_extras if extended
     end
 
     # One "task block" for the expanded listing: blank line separator
@@ -1012,9 +1016,10 @@ class Hammer
 
   # True if argv references the `self:` namespace or asks for help -
   # any of which means the user wants to see / invoke the built-ins.
+  # Bare `hammer` (empty argv) does NOT trigger - the no-args listing
+  # stays a clean project-command view without `self:` or `Recipes:`.
   # Cheap scan, runs once per invocation.
   def self.builtins_triggered?(argv)
-    return true if argv.empty? # bare `hammer` shows --help with Recipes: section
     argv.any? do |a|
       a == '--help' || a == '-h' || a == 'help' ||
         a == 'self' || a.start_with?('self:')

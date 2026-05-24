@@ -39,15 +39,30 @@ class CliTest < Minitest::Test
     end
   end
 
-  def test_missing_hammerfile_with_empty_argv_shows_builtins
-    # An empty argv from a dir with no Hammerfile is treated as "the user
-    # wants to see what hammer can do" - print help with the self:
-    # namespace surfaced (--ai used to live as a flag here).
+  def test_missing_hammerfile_with_empty_argv_exits
+    # Bare `hammer` no longer surfaces the `self:` namespace - it's just
+    # the project-listing entry point. With no Hammerfile around there's
+    # nothing to list, so we error out with the "no Hammerfile" hint.
     Dir.mktmpdir do |dir|
       Dir.chdir(dir) do
-        out, = capture { Hammer.cli([]) }
+        _, err, status = capture_exit { Hammer.cli([]) }
+        assert_equal 1, status
+        assert_includes err, 'no Hammerfile found'
+      end
+    end
+  end
+
+  def test_missing_hammerfile_with_help_shows_builtins
+    # An explicit help request (`--help` / `-h` / `help`) with no
+    # Hammerfile is treated as "what can hammer do?" - we surface the
+    # self: namespace and Recipes: section so the user can discover the
+    # tool-meta commands without having to bootstrap a project first.
+    Dir.mktmpdir do |dir|
+      Dir.chdir(dir) do
+        out, = capture { Hammer.cli(['--help']) }
         assert_includes out, 'self:ai'
         assert_includes out, 'self:recipe'
+        assert_includes out, 'Recipes:'
       end
     end
   end
