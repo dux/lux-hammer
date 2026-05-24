@@ -7,6 +7,30 @@ class Hammer
       @klass = klass
     end
 
+    # Top-level CLI description, shown under the Usage line in
+    # `hammer --help`. Multi-line strings render with each line indented.
+    def desc(text)
+      @klass.app_desc(text)
+    end
+
+    # Open the underlying Hammer subclass to add private instance methods
+    # callable from inside task procs. Lets recipe / Hammerfile authors
+    # share helpers without a `Foo.method` prefix or a separate module:
+    #
+    #   helpers do
+    #     def run(cmd) ; say cmd, :gray ; system cmd ; end
+    #   end
+    #
+    #   task :ship do
+    #     proc { run 'git push' }
+    #   end
+    #
+    # Procs run via `instance.instance_exec(opts, &handler)` on a fresh
+    # subclass instance, so anything `class_eval`'d here is in scope.
+    def helpers(&block)
+      @klass.class_eval(&block)
+    end
+
     def task(name, &block)
       @klass.task(name, &block)
     end
@@ -58,6 +82,26 @@ class Hammer
                              '(Hammerfile / Hammer.run block / *_hammer.rb)' unless target
         target.send(m, *args, &block)
       end
+    end
+
+    # Top-level `desc 'text'` from inside a Hammerfile / fragment - sets
+    # the CLI's overall description on the current target. Separate from
+    # the class-level `desc` (which is per-task pending state).
+    def desc(text)
+      target = Thread.current[:hammer_target]
+      raise Hammer::Error, '`desc` called outside a Hammer context ' \
+                           '(Hammerfile / Hammer.run block / *_hammer.rb)' unless target
+      target.app_desc(text)
+    end
+
+    # Same as Builder#helpers - top-level `helpers do ... end` in a
+    # fragment or Hammerfile adds private instance methods to the
+    # current target's class.
+    def helpers(&block)
+      target = Thread.current[:hammer_target]
+      raise Hammer::Error, '`helpers` called outside a Hammer context ' \
+                           '(Hammerfile / Hammer.run block / *_hammer.rb)' unless target
+      target.class_eval(&block)
     end
   end
 end

@@ -80,6 +80,19 @@ At class scope (for `def`-style commands):
 * Methods with arity 0 are called without opts; methods that take an arg
   receive the opts hash
 
+At Hammerfile (block-DSL) top-level scope only:
+
+* `desc 'CLI description'` - top-level summary shown under the `Usage:`
+  line in `hammer --help`. Multi-line allowed (via heredoc). This is
+  distinct from the class-DSL `desc` (which sets per-task pending
+  state for the next `def`).
+* `helpers do ... end` - shorthand for `class_eval` on the underlying
+  Hammer subclass. Use it to define private instance methods that task
+  procs can call as bare names (procs are `instance_exec`'d on the
+  subclass instance, so anything defined here is in scope). Helpers
+  can also call `say` / `choose` / `error` / `yes?` directly since
+  Hammer mixes in `Shell`.
+
 At class or `Hammerfile` scope:
 
 * `task :name do ... end`

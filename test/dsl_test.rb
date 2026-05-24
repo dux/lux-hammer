@@ -672,6 +672,45 @@ class DslTest < Minitest::Test
     assert_equal ['dino'], captured[:args]
   end
 
+  def test_helpers_block_attaches_methods_visible_to_procs
+    captured = nil
+    capture do
+      Hammer.run(%w[run]) do
+        helpers do
+          private
+
+          def shout(msg)
+            "#{msg}!".upcase
+          end
+        end
+
+        task :run do
+          proc { captured = shout('hi') }
+        end
+      end
+    end
+    assert_equal 'HI!', captured
+  end
+
+  def test_helpers_block_can_use_shell_helpers_inside
+    out, = capture do
+      Hammer.run(%w[run]) do
+        helpers do
+          private
+
+          def greet
+            say 'hello from helper'
+          end
+        end
+
+        task :run do
+          proc { greet }
+        end
+      end
+    end
+    assert_includes out, 'hello from helper'
+  end
+
   # ----- default program_name -----------------------------------------
 
   def with_program_name(value)

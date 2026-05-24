@@ -55,6 +55,7 @@ class Hammer
       sub.instance_variable_set(:@before_hooks, [])
       sub.instance_variable_set(:@parent, nil)
       sub.instance_variable_set(:@program_name, nil)
+      sub.instance_variable_set(:@app_desc, nil)
       sub.instance_variable_set(:@pending_desc, nil)
       sub.instance_variable_set(:@pending_examples, [])
       sub.instance_variable_set(:@pending_options, [])
@@ -108,6 +109,14 @@ class Hammer
     # before chdir-ing elsewhere.
     def program_name
       @program_name ||= default_program_name
+    end
+
+    # Top-level description for the whole CLI. Set from a Hammerfile (block
+    # DSL) via `desc 'text'` at top level - see `Hammer::Builder#desc`.
+    # Rendered under the Usage line in `--help` output.
+    def app_desc(text = nil)
+      return @app_desc if text.nil?
+      @app_desc = text.to_s.rstrip
     end
 
     # Program name shown in help/usage: the invocation path relative to cwd
@@ -580,6 +589,10 @@ class Hammer
 
       print_top_banner
       Shell.say "Usage: #{program_name} COMMAND [ARGS]", :cyan
+      if @app_desc && !@app_desc.empty?
+        Shell.say ''
+        @app_desc.each_line { |l| Shell.say "  #{l.chomp}" }
+      end
       if full
         each_command { |path, c| print_full_block(path, c) unless c.desc.empty? }
       else
@@ -657,6 +670,8 @@ class Hammer
       Shell.say ''
       Shell.say 'Hammerfile example:', :yellow
       Shell.say <<~RUBY
+          desc 'My project tools - build, deploy, test'
+
           task :hello do
             desc    'Greet someone'
             example 'hello world --loud'
@@ -889,6 +904,8 @@ class Hammer
       Shell.say "create one - example:"
       puts
       Shell.say <<~RUBY
+        desc 'My project tools'
+
         task :hello do
           desc 'say hello'
           proc do |opts|

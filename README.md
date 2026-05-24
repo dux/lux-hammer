@@ -81,6 +81,8 @@ hammer --update   # git pull main + rebuild + reinstall
 Create a `Hammerfile` in your project root:
 
 ```ruby
+desc 'My project tools - build, deploy, test'
+
 task :hello do
   desc 'say hi'
   proc do |opts|
@@ -99,12 +101,18 @@ hello dino
 $ hammer
 Usage: hammer COMMAND [ARGS]
 
+  My project tools - build, deploy, test
+
 Commands:
   hammer hello  # say hi
 ```
 
 That's it. `hammer` walks up from your current directory looking for a
 `Hammerfile`, evaluates it, and dispatches.
+
+The top-level `desc 'text'` is optional - one line (or multi-line via
+a heredoc) describing what the CLI is for. It renders right under the
+`Usage:` line in `hammer --help`.
 
 ## Why hammer (the short pitch)
 
