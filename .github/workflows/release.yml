@@ -1,0 +1,39 @@
+name: Release gem
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump, build, push to RubyGems
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+        run: bin/hammer gem:publish --yes
+
+      - name: Amend commit with version bump, tag, push
+        run: |
+          version=$(cat .version)
+          git add .version
+          git commit --amend --no-edit
+          git tag "v${version}"
+          git push --force-with-lease origin main
+          git push origin "v${version}"
