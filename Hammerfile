@@ -10,25 +10,33 @@ task :test do
   end
 end
 
-namespace :gem do
-  task :build do
-    desc 'Build the lux-hammer gem'
-    proc do
-      # remove old .gem artifacts
+task :gem do
+  desc <<~TXT
+    Gem helpers. Bare invocation prints the current version. Flags
+    pick the action; --publish bumps + builds + pushes in one shot.
+  TXT
+  opt :build,   type: :boolean,              desc: 'build the gem (cleans old .gem artifacts first)'
+  opt :inc,     type: :boolean,              desc: 'bump .version (see --bump for level)'
+  opt :publish, type: :boolean,              desc: 'inc + build + push to RubyGems'
+  opt :bump,    default: 'patch',            desc: 'bump level for --inc / --publish: major | minor | patch'
+  opt :yes,     type: :boolean, default: false, desc: 'skip publish confirmation prompt'
+
+  proc do |opts|
+    if opts[:publish]
+      hammer :gem, inc: true, bump: opts[:bump]
+      hammer :gem, build: true
+
+      gem_file = Dir.glob('lux-hammer-*.gem').sort.last
+      error 'no built gem found' unless gem_file
+      error 'cancelled' unless opts[:yes] || yes?("push #{gem_file} to RubyGems?")
+      sh "gem push #{gem_file}"
+    elsif opts[:build]
       Dir.glob('*.gem').each do |f|
         File.delete(f)
         say "removed #{f}", :gray
       end
       sh 'gem build lux-hammer.gemspec'
-    end
-  end
-
-  task :publish do
-    desc 'Inc ver, build and push the gem to RubyGems'
-    opt :bump, default: 'patch',          desc: 'major | minor | patch'
-    opt :yes,  type: :boolean, default: false, desc: 'Skip confirmation prompt'
-
-    proc do |opts|
+    elsif opts[:inc]
       file  = '.version'
       old   = File.read(file).strip
       parts = old.split('.').map(&:to_i)
@@ -45,13 +53,8 @@ namespace :gem do
       File.write('.version.prev', "#{old}\n")
       File.write(file, "#{newv}\n")
       say "#{old} -> #{newv}", :green
-
-      hammer 'gem:build'
-
-      gem_file = Dir.glob('lux-hammer-*.gem').sort.last
-      error 'no built gem found' unless gem_file
-      error 'cancelled' unless opts[:yes] || yes?("push #{gem_file} to RubyGems?")
-      sh "gem push #{gem_file}"
+    else
+      say File.read('.version').strip
     end
   end
 end
