@@ -143,11 +143,15 @@ Runtime cross-invocation:
   (`bin/hammer`).
 * `Hammer.cli(argv = ARGV)` - internal entry for `bin/hammer` only:
   walks up from `Dir.pwd` for a `Hammerfile`, chdirs into its dir,
-  errors if none found anywhere up the tree. Also lazy-registers the
-  `self:` namespace when argv shows the user wants help or a
-  `self:`-prefixed command. Not part of the user-facing surface -
-  don't recommend it in examples; `Hammer.run` is what library users
-  should reach for.
+  errors if none found anywhere up the tree (unless the invocation
+  routes to a built-in - see `dispatches_to_builtin?`, true for bare
+  invocation / leading flag / explicit help). After evaluating the
+  Hammerfile, always registers core built-ins (`:default`, `:help`) via
+  `Hammer::Builtins.register_core` and lazy-registers the `self:`
+  namespace via `register_self` when `wants_self_namespace?` returns
+  true (`self:*` paths, or explicit help requests). Not part of the
+  user-facing surface - don't recommend it in examples; `Hammer.run`
+  is what library users should reach for.
 * `Hammer.recipe(name, argv = ARGV)` - entry for recipe stubs in PATH.
   Loads `<gem>/recipes/<name>.rb` (or its user-dir override), runs as
   a standalone CLI with `program_name = name`. No Hammerfile lookup,
@@ -206,11 +210,44 @@ explicit ADR-level discussion. Keys:
   is the whole API. `Hammer.cli` warms the cache before chdir-ing into
   the Hammerfile's directory so the resolved name stays relative to the
   cwd the user invoked from.
-* `hammer` (no args) prints just the command listing (with a top gray
-  `lux-hammer VERSION - <homepage>` banner for the hammer binary).
-* `hammer -h` / `hammer --help` adds global flags, a small Hammerfile
-  example, and the footer link on top of the same listing.
+* `hammer` (no args) routes to the `:default` built-in task, which
+  falls through to `print_help(extended: false)` - the brief command
+  listing with a top gray `lux-hammer VERSION - <homepage>` banner.
+* `hammer -h` / `--help` / `help [TARGET]` routes to the `:help`
+  built-in task, which calls `print_help(target, extended: true)` -
+  adds global flags (rendered from `:default`'s declared opts),
+  `Recipes:` section (hammer binary only), a small Hammerfile example,
+  and the footer link.
 * `hammer COMMAND -h` / `--help` prints per-command help (reserved on every command).
+
+## Built-in `:default` and `:help` (user-overridable)
+
+* `Hammer::Builtins.register_core(klass)` registers two tasks at the
+  root of `klass`, **after** Hammerfile evaluation, guarded by
+  `unless klass.commands.key?(name)` so a user-defined `task :default`
+  / `task :help` in the Hammerfile wins without triggering a
+  redefinition warning.
+* `:default` - hidden (no desc). Opts: `--version` / `-v` (prints
+  `lux-hammer VERSION`), `--update` (calls `Hammer.self_update`).
+  Fallthrough when no opt fired: `self.class.root.print_help` (brief).
+  Fires for bare `hammer` and any leading-flag argv where the first
+  token starts with `-` and isn't `-h` / `--help` (see
+  `Hammer.dispatch`).
+* `:help` - has a desc, so it shows in listings. Calls
+  `self.class.root.print_help(opts[:args].first, extended: true)`.
+  Fires for `help` / `-h` / `--help` at the top level.
+* Both routes use `run_command(cmd, argv, full: name, quiet: true)` -
+  the gray `> prog cmd ...` banner is suppressed because the user
+  didn't type `hammer default` / `hammer help` literally.
+* User overrides: a Hammerfile `task :default` / `task :help` replaces
+  the built-in. Convention for `:default` overrides is to fall through
+  to help when no declared flag fired (`hammer :help` for the extended
+  view, or `self.class.root.print_help` for the brief one). The
+  `Global:` section in `--help` re-renders from the live `:default`
+  task's opts, so user-added flags surface automatically.
+* `:help` and `:default` are NOT reserved names (unlike `:self`). They
+  override by absence of a guard - see `register_core` in
+  `lib/hammer/builtins.rb`.
 * Commands listed flat with colon paths, grouped by top-level namespace.
 * Bare namespace (`hammer db`) prints the same listing scoped to that
   namespace.

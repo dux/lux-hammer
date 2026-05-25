@@ -7,9 +7,90 @@ class Hammer
   module Builtins
     module_function
 
-    # Wire the `self:` namespace into `klass`. Idempotent - safe to call
-    # twice; the second call replaces the existing subclass.
-    def register(klass)
+    # Core built-ins: `:default` and `:help`. Always registered (cheap;
+    # needed for bare `hammer`, leading-flag invocations, and explicit
+    # help requests - see `Hammer.dispatch`).
+    #
+    # User Hammerfiles can override either by defining their own
+    # `task :default` / `task :help`. The guards below skip registration
+    # when an override is already present, so no redefinition warning
+    # fires. Hammer.cli calls this AFTER evaluating the Hammerfile.
+    def register_core(klass)
+      register_help(klass)    unless klass.commands.key?('help')
+      register_default(klass) unless klass.commands.key?('default')
+    end
+
+    def register_help(klass)
+      klass.class_eval do
+        task :help do
+          desc <<~TXT
+            Show help. Optional TARGET = command name or namespace (`ns:`).
+
+            Without TARGET prints the extended top-level help (commands,
+            recipes, global flags, examples). With a command path prints
+            per-command help; with a namespace prefix prints that
+            namespace's command listing.
+          TXT
+          example 'help'
+          example 'help build'
+          example 'help db:'
+          proc do |opts|
+            self.class.root.print_help(opts[:args].first, extended: true)
+          end
+        end
+      end
+    end
+
+    # `:default` fires when argv is empty OR argv.first is a flag (other
+    # than -h/--help). Hidden from listings (no desc). User Hammerfiles
+    # can replace it to add their own global flags - convention is to
+    # fall through to `print_help` when no flag matched (the brief
+    # project-listing view; explicit `--help` / `help` still routes to
+    # the `:help` task for the extended view).
+    def register_default(klass)
+      klass.class_eval do
+        task :default do
+          opt :version, type: :boolean, alias: :v, desc: 'print lux-hammer version'
+          opt :update,  type: :boolean,           desc: 'rebuild + reinstall the gem from main'
+          opt :ai,      type: :boolean,           desc: 'dump AGENTS.md (AI-friendly authoring docs)'
+          opt :recipes, type: :boolean,           desc: 'list available recipes'
+          opt :init,    type: :boolean,           desc: 'write a starter Hammerfile in cwd'
+          proc do |opts|
+            if opts[:version]
+              puts Hammer::VERSION
+            elsif opts[:update]
+              Hammer.self_update
+            elsif opts[:ai]
+              Hammer.print_ai_help
+            elsif opts[:recipes]
+              Hammer::Builtins::Recipes.list
+            elsif opts[:init]
+              Hammer::Builtins.write_starter_hammerfile
+            else
+              self.class.root.print_help
+            end
+          end
+        end
+      end
+    end
+
+    # Writes ./Hammerfile with the canonical starter template. Refuses
+    # if one already exists - we don't want `--init` to clobber.
+    def write_starter_hammerfile
+      target = File.join(Dir.pwd, 'Hammerfile')
+      if File.exist?(target)
+        Shell.print_error "Hammerfile already exists at #{target}"
+        exit 1
+      end
+      File.write(target, Hammer::STARTER_HAMMERFILE)
+      Shell.say "created #{target}", :green
+    end
+
+    # Wire the `self:` namespace into `klass`. Lazy: only loaded when
+    # argv references `self` or `self:*` (kept out of normal listings).
+    # Idempotent - safe to call twice; the second call replaces the
+    # existing subclass.
+    def register_self(klass)
       Thread.current[:hammer_builtins_loading] = true
       klass.namespace(:self) do
         task :ai do

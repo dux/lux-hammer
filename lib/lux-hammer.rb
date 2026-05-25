@@ -369,13 +369,18 @@ class Hammer
       argv = argv.dup
       name = argv.shift
 
-      if name.nil?
-        return print_help
+      # Bare invocation OR leading flag (other than -h/--help) -> :default
+      # task. Re-prepend the flag so :default's option parser sees it.
+      # If no :default is defined, fall back to top-level help.
+      if name.nil? || (name.start_with?('-') && name != '-h' && name != '--help')
+        argv.unshift(name) if name
+        return dispatch_to_builtin('default', argv) { print_help }
       end
 
+      # Explicit help requests -> :help task. Remaining positionals (e.g.
+      # `help build`, `help db:`) reach :help via opts[:args].
       if name == 'help' || name == '-h' || name == '--help'
-        target = argv.shift
-        return print_help(target, extended: true)
+        return dispatch_to_builtin('help', argv) { print_help(argv.first, extended: true) }
       end
 
       # Trailing colon ("db:") -> namespace listing. Bare ":" lists root.
@@ -402,6 +407,16 @@ class Hammer
     rescue AmbiguousMatch => e
       Shell.print_error(e.message)
       exit 1
+    end
+
+    # Run a built-in routing task (:default or :help) if defined,
+    # otherwise yield to the fallback block. The implicit run banner
+    # is suppressed (the user typed `hammer --version`, not `hammer
+    # default --version` - no point echoing the rewritten form).
+    def dispatch_to_builtin(name, argv)
+      cmd = commands[name]
+      return yield unless cmd
+      run_command(cmd, argv, full: name, quiet: true)
     end
 
     public
@@ -526,14 +541,14 @@ class Hammer
       end
     end
 
-    def run_command(cmd, argv, full: nil)
+    def run_command(cmd, argv, full: nil, quiet: false)
       # -h / --help is reserved on every command. Anywhere before a `--`
       # stop-marker, it short-circuits to per-command help.
       return print_command_help(cmd, full) if help_requested?(argv)
 
       positional, opts = Parser.new(cmd.options).parse(argv)
       opts[:args] = positional
-      print_run_banner(cmd, full || cmd.name, positional, opts)
+      print_run_banner(cmd, full || cmd.name, positional, opts) unless quiet
       instance = new
       run_before_hooks(instance, opts)
       run_needs(cmd)
@@ -707,14 +722,16 @@ class Hammer
       print_footer unless hammer_bin
     end
 
-    # Global flags only exist when invoked via the `hammer` binary
-    # (see `Hammer.cli`), not for user-built CLIs that call `start`
-    # on their own subclass.
+    # Listed under `Default task options:` in `--help` so users see what
+    # flags fire on bare-flag invocation (`hammer --version` etc).
+    # Re-rendered from the live `:default` task so user-defined
+    # overrides surface their own flags here automatically.
     def print_global_flags
-      return unless root.instance_variable_get(:@hammer_binary)
+      default = root.commands['default']
+      return unless default && !default.options.empty?
       Shell.say ''
-      Shell.say 'Global:', :yellow
-      Shell.say '  --update  # alias for `self:update`'
+      Shell.say 'Default task options:', :yellow
+      default.options.each { |o| Shell.say "  #{o.usage}" }
     end
 
     def print_footer
@@ -722,35 +739,13 @@ class Hammer
       Shell.say "powered by hammer - #{HOMEPAGE}", :gray
     end
 
-    # Small Hammerfile cheat-sheet shown under `hammer --help`. Touches
-    # the main surface area (task/desc/example/opt, namespace, before,
-    # needs, sh, say) without trying to be exhaustive - that's --ai's job.
+    # Hammerfile cheat-sheet shown under `hammer --help`. Same content
+    # as `hammer --init` writes - single source of truth via
+    # `Hammer::STARTER_HAMMERFILE`. For exhaustive docs see `hammer self:ai`.
     def print_hammerfile_example
       Shell.say ''
       Shell.say 'Hammerfile example:', :yellow
-      Shell.say <<~RUBY
-          desc 'My project tools - build, deploy, test'
-
-          task :hello do
-            desc    'Greet someone'
-            example 'hello world --loud'
-            opt :loud, type: :boolean, alias: :l
-            proc do |opts|
-              msg = "hello \#{opts[:args].first || 'world'}"
-              say(opts[:loud] ? msg.upcase : msg, :cyan)
-            end
-          end
-
-          namespace :db do
-            before { hammer :env }
-
-            task :migrate do
-              desc  'Run migrations'
-              needs 'db:check'
-              proc  { sh 'bin/rails db:migrate' }
-            end
-          end
-      RUBY
+      Shell.say Hammer::STARTER_HAMMERFILE
     end
 
     def print_command_list(klass, prefix = nil)
@@ -919,6 +914,39 @@ class Hammer
     end
   end
 
+  # Canonical starter Hammerfile. Written verbatim by `hammer --init`
+  # and shown inline by `print_hammerfile_example` (the `Hammerfile
+  # example:` block in `hammer --help`) - one source of truth for both.
+  # Annotated as a mini tutorial of the common DSL surface in one task.
+  # Single-quoted heredoc so file contents pass through unescaped.
+  STARTER_HAMMERFILE ||= <<~'RUBY'
+    desc 'My project tools'
+
+    # `namespace :name do ... end` groups tasks under a colon prefix.
+    # Address as `hammer demo:greet`. `:self` is reserved for built-ins.
+    namespace :demo do
+      # run before every task - global, or on a namespace
+      before { say.gray "[demo] booting in #{Dir.pwd}" }
+
+      task :greet do
+        desc    'Demo task - shows the common DSL features in one place'
+        example 'demo:greet world --from=alice --loud --times=3'
+        alt     :hi                     # `hammer demo:hi` also dispatches here
+
+        opt :from,  default: 'anon',              desc: 'who is greeting'
+        opt :loud,  type: :boolean, alias: :l,    desc: 'shout the greeting'
+        opt :times, type: :integer, default: 1,   desc: 'repeat N times'
+
+        proc do |opts|
+          who = opts[:args].first || 'world'
+          msg = "hello #{who} from #{opts[:from]}"
+          msg = msg.upcase if opts[:loud]
+          opts[:times].times { say msg, :cyan }
+        end
+      end
+    end
+  RUBY
+
   # Default install dir used by install.sh and `hammer --update`.
   SELF_UPDATE_DIR  ||= File.expand_path('~/.local/share/lux-hammer')
   SELF_UPDATE_REPO ||= 'https://github.com/dux/hammer.git'
@@ -963,27 +991,22 @@ class Hammer
   # update) is registered on-demand when the user invokes help or
   # types a `self:` path - see `builtins_triggered?`.
   def self.cli(argv = ARGV)
-    # `--update` is a back-compat alias for `self:update`. Rewrite so
-    # normal dispatch handles it (after builtins registration).
-    if (i = argv.index('--update'))
-      argv = argv.dup
-      argv.delete_at(i)
-      argv.unshift('self:update')
-    end
-
-    wants_builtins = builtins_triggered?(argv)
+    wants_self = wants_self_namespace?(argv)
+    needs_no_project = wants_self || dispatches_to_builtin?(argv)
 
     path = find_hammerfile(Dir.pwd)
     unless path
-      # No Hammerfile - still allow `hammer self:*` commands to run
-      # (they don't depend on a project). Otherwise print the help-ish
-      # "create one" message.
-      if wants_builtins
+      # No Hammerfile - still allow built-ins (:default, :help, self:*)
+      # to run. Bare `hammer`, `hammer --version`, `hammer --help` etc.
+      # all work without a project. Other commands print the "create one"
+      # message.
+      if needs_no_project
         klass = Class.new(Hammer)
         klass.instance_variable_set(:@hammer_binary, true)
         klass.program_name
         require_relative 'hammer/builtins'
-        Hammer::Builtins.register(klass)
+        Hammer::Builtins.register_core(klass)
+        Hammer::Builtins.register_self(klass) if wants_self
         klass.start(argv)
         return
       end
@@ -1004,18 +1027,11 @@ class Hammer
 
       Shell.say "create one - example:"
       puts
-      Shell.say <<~RUBY
-        desc 'My project tools'
-
-        task :hello do
-          desc 'say hello'
-          proc do |opts|
-            say.green "hello \#{opts[:args].first || 'world'}"
-          end
-        end
-      RUBY
+      Shell.say STARTER_HAMMERFILE
       Shell.say ''
-      Shell.say "tip: run `#{File.basename($PROGRAM_NAME)} self:ai` for AI-friendly Hammerfile authoring docs", :gray
+      bin = File.basename($PROGRAM_NAME)
+      Shell.say "tip: run `#{bin} --init` to drop the example above into ./Hammerfile", :gray
+      Shell.say "tip: run `#{bin} self:ai` for AI-friendly Hammerfile authoring docs", :gray
       exit 1
     end
 
@@ -1036,24 +1052,36 @@ class Hammer
     # are NOT visible during Hammerfile evaluation, only inside handlers.
     Hammer::Dotenv.load(Dir.pwd) if klass.dotenv_enabled?
 
-    if wants_builtins
-      require_relative 'hammer/builtins'
-      Hammer::Builtins.register(klass)
-    end
+    # Built-ins register AFTER Hammerfile eval so user-defined `:default`
+    # / `:help` win (the `unless commands.key?(...)` guards in
+    # register_core skip the built-in when overridden - no redefinition
+    # warning).
+    require_relative 'hammer/builtins'
+    Hammer::Builtins.register_core(klass)
+    Hammer::Builtins.register_self(klass) if wants_self_namespace?(argv)
 
     klass.start(argv)
   end
 
-  # True if argv references the `self:` namespace or asks for help -
-  # any of which means the user wants to see / invoke the built-ins.
-  # Bare `hammer` (empty argv) does NOT trigger - the no-args listing
-  # stays a clean project-command view without `self:` or `Recipes:`.
-  # Cheap scan, runs once per invocation.
-  def self.builtins_triggered?(argv)
+  # True if argv references the `self:` namespace OR explicitly asks
+  # for help - both should surface the hammer-binary management
+  # commands in listings. Kept lazy (vs always-on) so `self:` and
+  # `Recipes:` don't pollute bare `hammer` output.
+  def self.wants_self_namespace?(argv)
     argv.any? do |a|
-      a == '--help' || a == '-h' || a == 'help' ||
-        a == 'self' || a.start_with?('self:')
+      a == 'self' || a.start_with?('self:') ||
+        a == 'help' || a == '-h' || a == '--help'
     end
+  end
+
+  # True if argv goes through a built-in dispatch path (`:default` or
+  # `:help`) - meaning bare `hammer`, leading-flag invocations like
+  # `hammer --version`, or explicit help requests. These don't need a
+  # project Hammerfile to run.
+  def self.dispatches_to_builtin?(argv)
+    return true if argv.empty?
+    first = argv.first
+    first == 'help' || first == '-h' || first == '--help' || first.start_with?('-')
   end
 
   # Walk up the directory tree looking for a Hammerfile.

@@ -541,6 +541,73 @@ end
 `hammer` and `hammer db` won't list `env`, but `hammer env`,
 `hammer :env` from another proc, and `before { hammer :env }` all work.
 
+## Built-in `:default` and `:help` (overridable)
+
+The `hammer` binary auto-registers two built-in tasks at the root of
+your CLI:
+
+* `:default` - fires when the user runs `hammer` with no command, or
+  with a leading flag (other than `-h` / `--help`). Ships with:
+  * `-v` / `--version` - print lux-hammer version (number only)
+  * `--update` - rebuild + reinstall the gem from main
+  * `--ai` - dump AGENTS.md (AI-friendly authoring docs)
+  * `--recipes` - list available recipes
+  * `--init` - write a starter Hammerfile in cwd (refuses if one exists)
+
+  When no declared flag matched, it falls through to the brief project
+  listing. Hidden from `--help` (no `desc`). The opts surface in the
+  `Default task options:` section of `hammer --help`, re-rendered from
+  the live task so overrides show up automatically.
+* `:help` - fires for `hammer help`, `hammer -h`, `hammer --help`, and
+  also accepts a target (`hammer help build`, `hammer help db:`).
+  Prints the extended help view.
+
+Both are registered **after** your Hammerfile is evaluated, so defining
+your own `task :default` / `task :help` replaces the built-in with no
+redefinition warning:
+
+```ruby
+# Hammerfile
+
+task :default do
+  opt :version, type: :boolean, alias: :v
+  opt :status,  type: :boolean, alias: :s
+
+  proc do |opts|
+    if opts[:version]
+      say "myapp #{MyApp::VERSION}"
+    elsif opts[:status]
+      sh 'bin/myapp status'
+    else
+      hammer :help                # fall through to help
+    end
+  end
+end
+```
+
+Convention: if no flag matched, fall through to `hammer :help` (or
+`self.class.root.print_help` for the brief view).
+
+Override `:help` to customize the listing your users see for
+`-h` / `--help` / `help`:
+
+```ruby
+task :help do
+  desc 'Show help (with a banner)'
+  proc do |opts|
+    say.cyan "MyApp #{MyApp::VERSION} - https://internal/docs"
+    say ''
+    self.class.root.print_help(opts[:args].first, extended: true)
+  end
+end
+```
+
+The `Global:` section in `hammer --help` is rendered from `:default`'s
+declared opts, so your overrides surface automatically.
+
+`-h` / `--help` stay reserved on every command - you can't shadow them
+with an `opt`.
+
 ## Prereqs (`needs`)
 
 Declare commands that must run before this one (Rake-style task deps):

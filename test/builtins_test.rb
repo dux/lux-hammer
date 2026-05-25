@@ -1,4 +1,5 @@
 require_relative 'test_helper'
+require 'hammer/builtins'
 
 class BuiltinsTest < Minitest::Test
   include CaptureIO
@@ -12,28 +13,39 @@ class BuiltinsTest < Minitest::Test
 
   # ----- trigger detection -------------------------------------------
 
-  def test_triggered_on_help_variants
-    assert Hammer.builtins_triggered?(['--help'])
-    assert Hammer.builtins_triggered?(['-h'])
-    assert Hammer.builtins_triggered?(['help'])
+  def test_wants_self_namespace_on_help_variants
+    # Explicit help requests should surface `self:` and `Recipes:` so
+    # users can discover tool-meta commands.
+    assert Hammer.wants_self_namespace?(['--help'])
+    assert Hammer.wants_self_namespace?(['-h'])
+    assert Hammer.wants_self_namespace?(['help'])
   end
 
-  def test_not_triggered_on_bare_invocation
-    # Bare `hammer` shows the project listing without `self:` or `Recipes:` -
-    # those are reserved for explicit `--help` / `-h` / `help`.
-    refute Hammer.builtins_triggered?([])
+  def test_wants_self_namespace_on_self_prefix
+    assert Hammer.wants_self_namespace?(['self:ai'])
+    assert Hammer.wants_self_namespace?(['self:recipe', 'install', 'srt'])
+    assert Hammer.wants_self_namespace?(['self'])
   end
 
-  def test_triggered_on_self_prefix
-    assert Hammer.builtins_triggered?(['self:ai'])
-    assert Hammer.builtins_triggered?(['self:recipe', 'install', 'srt'])
-    assert Hammer.builtins_triggered?(['self'])
+  def test_wants_self_namespace_skipped_on_bare_or_user_commands
+    # Bare `hammer` and user commands keep listings clean - no `self:`
+    # leak. Lazy-load avoids polluting normal project views.
+    refute Hammer.wants_self_namespace?([])
+    refute Hammer.wants_self_namespace?(['build'])
+    refute Hammer.wants_self_namespace?(['db:migrate'])
+    refute Hammer.wants_self_namespace?(['hello', 'dino', '--loud'])
   end
 
-  def test_not_triggered_on_user_commands
-    refute Hammer.builtins_triggered?(['build'])
-    refute Hammer.builtins_triggered?(['db:migrate'])
-    refute Hammer.builtins_triggered?(['hello', 'dino', '--loud'])
+  def test_dispatches_to_builtin_for_bare_and_flag_and_help
+    assert Hammer.dispatches_to_builtin?([])
+    assert Hammer.dispatches_to_builtin?(['--version'])
+    assert Hammer.dispatches_to_builtin?(['-v'])
+    assert Hammer.dispatches_to_builtin?(['--update'])
+    assert Hammer.dispatches_to_builtin?(['help'])
+    assert Hammer.dispatches_to_builtin?(['-h'])
+    assert Hammer.dispatches_to_builtin?(['--help'])
+    refute Hammer.dispatches_to_builtin?(['build'])
+    refute Hammer.dispatches_to_builtin?(['db:migrate'])
   end
 
   # ----- reserved-name guard -----------------------------------------
@@ -51,14 +63,37 @@ class BuiltinsTest < Minitest::Test
     assert_includes err.message, "reserved"
   end
 
-  def test_builtins_register_passes_the_guard
+  def test_register_self_passes_the_guard
     klass = Class.new(Hammer)
     klass.instance_variable_set(:@hammer_binary, true)
-    Hammer::Builtins.register(klass)
+    Hammer::Builtins.register_self(klass)
     assert klass.namespaces.key?('self')
     assert klass.namespaces['self'].commands.key?('ai')
     assert klass.namespaces['self'].commands.key?('update')
     assert klass.namespaces['self'].commands.key?('recipe')
+  end
+
+  def test_register_core_adds_default_and_help
+    klass = Class.new(Hammer)
+    Hammer::Builtins.register_core(klass)
+    assert klass.commands.key?('default')
+    assert klass.commands.key?('help')
+  end
+
+  def test_register_core_skips_when_user_defined
+    klass = Class.new(Hammer) do
+      task :default do
+        proc { |_| say 'mine' }
+      end
+      task :help do
+        desc 'my help'
+        proc { |_| say 'my help' }
+      end
+    end
+    Hammer::Builtins.register_core(klass)
+    # User definitions still in place (no redefinition warning fires
+    # because register_core guards on commands.key?).
+    assert_equal 'my help', klass.commands['help'].desc
   end
 
   # ----- self:recipe action dispatch ---------------------------------
