@@ -2,7 +2,7 @@ class Hammer
   # A single registered command on a Hammer class.
   class Command
     attr_reader :name, :desc, :options, :examples, :alts, :needs
-    attr_accessor :handler
+    attr_accessor :handler, :location, :prev_location
 
     def initialize(name:, desc: '', handler: nil)
       @name     = name.to_s

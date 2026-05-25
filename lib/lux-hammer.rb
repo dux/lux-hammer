@@ -141,6 +141,7 @@ class Hammer
     # lives at `opts[:args]`.
     def task(name, &block)
       cmd = Command.new(name: name.to_s)
+      cmd.location = source_location_of(block)
       handler = CommandBuilder.new(cmd).instance_eval(&block)
       unless handler.is_a?(Proc)
         raise Error, <<~MSG
@@ -161,6 +162,12 @@ class Hammer
         MSG
       end
       cmd.handler = handler
+
+      if (prev = commands[cmd.name])
+        cmd.prev_location = prev.location
+        warn_redefinition('task', cmd.name, prev.location, cmd.location)
+      end
+
       commands[cmd.name] = cmd
 
       # `task` ignores pending class-level state, but clear it so a
@@ -199,7 +206,14 @@ class Hammer
       # "myapp ns:cmd" with the same prefix everywhere - and so the value
       # captured pre-chdir (see `Hammer.cli`) survives into nested classes.
       sub.instance_variable_set(:@program_name, program_name)
+      sub.instance_variable_set(:@location, source_location_of(block))
       Hammer.with_target(sub) { sub.class_eval(&block) } if block
+
+      if (prev = @namespaces[name.to_s])
+        sub.instance_variable_set(:@prev_location, prev.instance_variable_get(:@location))
+        warn_redefinition('namespace', name.to_s, prev.instance_variable_get(:@location), sub.instance_variable_get(:@location))
+      end
+
       @namespaces[name.to_s] = sub
     end
 
@@ -234,6 +248,21 @@ class Hammer
 
     def parent
       @parent
+    end
+
+    # "file:line" of the block that defined a task/namespace. Falls back
+    # to "(unknown)" for blocks without a usable source_location (rare -
+    # built-in C-defined procs, eval'd blocks).
+    def source_location_of(block)
+      loc = block&.source_location
+      loc ? "#{loc[0]}:#{loc[1]}" : '(unknown)'
+    end
+
+    # Emit a yellow [hammer] warning on stderr when a task/namespace is
+    # redefined. Last write wins (commands[name] = cmd), but the prior
+    # location is captured so listings can tag the entry as `(redefined)`.
+    def warn_redefinition(kind, name, prev_loc, new_loc)
+      warn Shell.paint("[hammer] redefined #{kind} :#{name} - was #{prev_loc || '(unknown)'}, now #{new_loc || '(unknown)'}", :yellow)
     end
 
     # Root -> ... -> self. Used to gather `before` hooks for a command.
@@ -755,6 +784,7 @@ class Hammer
     def emit_rows(rows, width)
       rows.each do |full, c|
         brief = c.alts.empty? ? c.brief : "#{c.brief} (alt: #{c.alts.join(', ')})"
+        brief = "#{brief} #{Shell.paint('(redefined)', :yellow)}" if c.prev_location
         Shell.say "  #{program_name} #{full.ljust(width)}  # #{brief}"
       end
     end
