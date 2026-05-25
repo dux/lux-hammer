@@ -1077,6 +1077,8 @@ $ hammer self:recipe
 gem:
   srt  # Subtitle (.srt) toolkit - shift timestamps, show stats
          [install: hammer self:recipe install srt]
+  llm  # personal LLM utility CLI (memory store, prompt-token expander, ...)
+         [install: hammer self:recipe install llm]
 ```
 
 Installing one (you control the path; nothing is written for you):
