@@ -45,7 +45,7 @@ lib/hammer/loader.rb        # `*_hammer.rb` fragment loader (auto/glob/file)
 lib/hammer/builder.rb       # Block-DSL context (Hammerfile / Hammer.run)
 lib/hammer/command_builder.rb # `task :name do ... end` context
 lib/hammer/recipe.rb        # Recipe discovery (gem + user dir, desc, stub)
-lib/hammer/builtins.rb      # Lazy-loaded `self:` namespace (recipe, ai, update)
+lib/hammer/builtins.rb      # Built-in tasks (recipes, update, agents, version, init, ...)
 recipes/                    # Bundled recipes (each `<name>.rb` -> a bin via stub)
 test/dsl_test.rb            # DSL surface, dispatch, help formatting
 test/load_test.rb           # `load` / `*_hammer.rb` fragment loader
@@ -144,14 +144,19 @@ Runtime cross-invocation:
 * `Hammer.cli(argv = ARGV)` - internal entry for `bin/hammer` only:
   walks up from `Dir.pwd` for a `Hammerfile`, chdirs into its dir,
   errors if none found anywhere up the tree (unless the invocation
-  routes to a built-in - see `dispatches_to_builtin?`, true for bare
-  invocation / leading flag / explicit help). After evaluating the
-  Hammerfile, always registers core built-ins (`:default`, `:help`) via
-  `Hammer::Builtins.register_core` and lazy-registers the `self:`
-  namespace via `register_self` when `wants_self_namespace?` returns
-  true (`self:*` paths, or explicit help requests). Not part of the
-  user-facing surface - don't recommend it in examples; `Hammer.run`
-  is what library users should reach for.
+  routes to a built-in - see `dispatches_to_builtin?` /
+  `looks_like_builtin?`, true for bare invocation / leading flag /
+  explicit help / a built-in task name). After evaluating the
+  Hammerfile, registers the always-on core built-ins (`:default`,
+  `:help`, `:update`, `:agents`, `:version`) via
+  `Hammer::Builtins.register_core` - each guarded by
+  `unless commands.key?(...)` so a user-defined task wins silently.
+  No-project-only built-ins (`:recipes`, `:init`) are NOT registered
+  when a Hammerfile loaded - reach them with `--system`. The
+  `--system` flag is peeled off argv at the top and forces the
+  no-Hammerfile branch. Not part of the user-facing surface - don't
+  recommend it in examples; `Hammer.run` is what library users should
+  reach for.
 * `Hammer.recipe(name, argv = ARGV)` - entry for recipe stubs in PATH.
   Loads `<gem>/recipes/<name>.rb` (or its user-dir override), runs as
   a standalone CLI with `program_name = name`. No Hammerfile lookup,
@@ -222,34 +227,47 @@ explicit ADR-level discussion. Keys:
   and the footer link.
 * `hammer COMMAND -h` / `--help` prints per-command help (reserved on every command).
 
-## Built-in `:default` and `:help` (user-overridable)
+## Built-in tasks (user-overridable)
 
-* `Hammer::Builtins.register_core(klass)` registers two tasks at the
-  root of `klass`, **after** Hammerfile evaluation, guarded by
-  `unless klass.commands.key?(name)` so a user-defined `task :default`
-  / `task :help` in the Hammerfile wins without triggering a
-  redefinition warning.
-* `:default` - hidden (no desc). Opts: `--version` / `-v` (prints
-  `lux-hammer VERSION`), `--update` (calls `Hammer.self_update`).
-  Fallthrough when no opt fired: `self.class.root.print_help` (brief).
-  Fires for bare `hammer` and any leading-flag argv where the first
-  token starts with `-` and isn't `-h` / `--help` (see
-  `Hammer.dispatch`).
-* `:help` - has a desc, so it shows in listings. Calls
+`Hammer::Builtins` defines two registration entry points; both register
+**after** Hammerfile evaluation and skip each task when the user
+already defined it (`unless klass.commands.key?(name)` - no
+redefinition warning).
+
+* `register_core(klass)` - always called. Registers `:default`,
+  `:help`, `:update`, `:agents`, `:version`. These coexist with
+  Hammerfile tasks.
+* `register_no_project(klass)` - called only on the no-Hammerfile
+  branch of `Hammer.cli` (which `--system` also routes through).
+  Registers `:recipes` and `:init` - tasks that would collide too
+  easily with user tasks inside a project.
+
+No reserved namespace. Names like `:self`, `:recipes`, `:update` can
+all be defined freely in a Hammerfile; the built-ins yield.
+
+Task contracts:
+
+* `:default` - hidden (no desc). Just prints `self.class.root.print_help`
+  (brief). Fires for bare `hammer` and leading-flag invocations where
+  the first token starts with `-` and isn't `-h` / `--help` (see
+  `Hammer.dispatch`). User overrides typically declare flag opts and
+  fall through to `hammer :help` when none matched.
+* `:help` - has a desc, shows in listings. Calls
   `self.class.root.print_help(opts[:args].first, extended: true)`.
   Fires for `help` / `-h` / `--help` at the top level.
-* Both routes use `run_command(cmd, argv, full: name, quiet: true)` -
-  the gray `> prog cmd ...` banner is suppressed because the user
-  didn't type `hammer default` / `hammer help` literally.
-* User overrides: a Hammerfile `task :default` / `task :help` replaces
-  the built-in. Convention for `:default` overrides is to fall through
-  to help when no declared flag fired (`hammer :help` for the extended
-  view, or `self.class.root.print_help` for the brief one). The
-  `Global:` section in `--help` re-renders from the live `:default`
-  task's opts, so user-added flags surface automatically.
-* `:help` and `:default` are NOT reserved names (unlike `:self`). They
-  override by absence of a guard - see `register_core` in
-  `lib/hammer/builtins.rb`.
+* `:update` / `:agents` / `:version` - thin wrappers around
+  `Hammer.self_update` / `Hammer.print_ai_help` / `puts Hammer::VERSION`.
+* `:recipes` - all recipe-management actions on one task, picked via
+  boolean opts: `--install [NAME [TARGET]]`, `--show NAME`,
+  `--path NAME`, `--edit NAME`, `--run NAME [ARGS]` (use `--` to
+  forward flags through). Bare invocation lists.
+* `:init` - writes `Hammer::STARTER_HAMMERFILE` to `./Hammerfile`;
+  refuses if one exists.
+
+Both `:default` and `:help` are invoked via `run_command(cmd, argv,
+full: name, quiet: true)` - the gray `> prog cmd ...` banner is
+suppressed because the user didn't type `hammer default` /
+`hammer help` literally.
 * Commands listed flat with colon paths, grouped by top-level namespace.
 * Bare namespace (`hammer db`) prints the same listing scoped to that
   namespace.

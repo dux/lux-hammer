@@ -73,7 +73,7 @@ Clones into `~/.local/share/lux-hammer` (override with `LUX_HAMMER_DIR=`),
 builds the gem, and installs it. Re-run any time, or use:
 
 ```sh
-hammer --update   # git pull main + rebuild + reinstall
+hammer update   # git pull main + rebuild + reinstall
 ```
 
 ## Quick start
@@ -483,10 +483,6 @@ hammer :                  # trailing colon at root: full help for every command
 Namespaces nest to any depth. There is no per-level dispatch - the root
 parses the whole colon path and walks the namespace tree.
 
-The `self:` namespace is reserved for hammer's own built-in commands
-(see [Recipes](#recipes-shareable-mini-clis-shipped-with-hammer)
-below). Defining `namespace :self` in a Hammerfile raises an error.
-
 ## Pre-hooks (`before`)
 
 A `before do ... end` block at the root scope or inside a `namespace`
@@ -541,30 +537,42 @@ end
 `hammer` and `hammer db` won't list `env`, but `hammer env`,
 `hammer :env` from another proc, and `before { hammer :env }` all work.
 
-## Built-in `:default` and `:help` (overridable)
+## Built-in tasks (all overridable)
 
-The `hammer` binary auto-registers two built-in tasks at the root of
-your CLI:
+The `hammer` binary auto-registers a small set of built-in tasks at
+the root of your CLI. Each one is guarded by `unless commands.key?` -
+defining your own `task :name` in a Hammerfile silently replaces the
+built-in.
 
-* `:default` - fires when the user runs `hammer` with no command, or
-  with a leading flag (other than `-h` / `--help`). Ships with:
-  * `-v` / `--version` - print lux-hammer version (number only)
-  * `--update` - rebuild + reinstall the gem from main
-  * `--ai` - dump AGENTS.md (AI-friendly authoring docs)
-  * `--recipes` - list available recipes
-  * `--init` - write a starter Hammerfile in cwd (refuses if one exists)
+Always available (with or without a Hammerfile):
 
-  When no declared flag matched, it falls through to the brief project
-  listing. Hidden from `--help` (no `desc`). The opts surface in the
-  `Default task options:` section of `hammer --help`, re-rendered from
-  the live task so overrides show up automatically.
-* `:help` - fires for `hammer help`, `hammer -h`, `hammer --help`, and
-  also accepts a target (`hammer help build`, `hammer help db:`).
-  Prints the extended help view.
+* `:default` - fires on bare `hammer` and on leading-flag invocations.
+  Hidden from listings. Just prints the brief help by default; override
+  to wire up your own global flags.
+* `:help` - `hammer help [TARGET]`, `hammer -h`, `hammer --help`. Prints
+  the extended help view; `TARGET` accepts a command path or a `ns:`
+  prefix.
+* `:update` - rebuild + reinstall lux-hammer from main.
+* `:agents` - dump AGENTS.md (AI-friendly Hammerfile authoring docs).
+* `:version` - print the lux-hammer version.
 
-Both are registered **after** your Hammerfile is evaluated, so defining
-your own `task :default` / `task :help` replaces the built-in with no
-redefinition warning:
+Only when no Hammerfile is loaded (or `--system` is passed - see below):
+
+* `:recipes` - list / install / show / edit recipes.
+* `:init` - write a starter Hammerfile in cwd (refuses if one exists).
+
+These two are skipped inside a project so they don't shadow user tasks.
+To reach them from inside a project, pass `--system`:
+
+```sh
+hammer --system recipes              # list recipes from anywhere
+hammer --system recipes --install srt ~/bin/srt
+```
+
+`--system` forces the no-Hammerfile branch - the Hammerfile in the
+current tree (if any) isn't loaded for that invocation.
+
+Customize bare `hammer` by replacing `:default`:
 
 ```ruby
 # Hammerfile
@@ -585,11 +593,7 @@ task :default do
 end
 ```
 
-Convention: if no flag matched, fall through to `hammer :help` (or
-`self.class.root.print_help` for the brief view).
-
-Override `:help` to customize the listing your users see for
-`-h` / `--help` / `help`:
+Or replace `:help` to add a banner:
 
 ```ruby
 task :help do
@@ -601,9 +605,6 @@ task :help do
   end
 end
 ```
-
-The `Global:` section in `hammer --help` is rendered from `:default`'s
-declared opts, so your overrides surface automatically.
 
 `-h` / `--help` stay reserved on every command - you can't shadow them
 with an `opt`.
@@ -1070,21 +1071,29 @@ A **recipe** is a standalone Hammerfile-style script bundled inside the
 top-level binary in your `PATH` - so `srt` becomes a real command, not
 `hammer srt:shift`.
 
+Recipe management lives under the `recipes` task. From inside a
+project the task isn't registered (so it can't shadow user tasks);
+pass `--system` to reach it from anywhere.
+
 Listing what's available:
 
 ```sh
-$ hammer self:recipe
+$ hammer recipes                    # from any non-project dir
+$ hammer --system recipes           # from inside a project
 gem:
   srt  # Subtitle (.srt) toolkit - shift timestamps, show stats
-         [install: hammer self:recipe install srt]
+         [install: hammer recipes --install srt]
   llm  # personal LLM utility CLI (memory store, prompt-token expander, ...)
-         [install: hammer self:recipe install llm]
+         [install: hammer recipes --install llm]
 ```
 
-Installing one (you control the path; nothing is written for you):
+Installing one. With no TARGET, the stub is printed to stdout (you
+redirect it yourself); with a TARGET path, lux-hammer writes the file
+and chmods +x in one step:
 
 ```sh
-$ hammer self:recipe install srt > ~/bin/srt && chmod +x ~/bin/srt
+$ hammer recipes --install srt ~/bin/srt    # write + chmod
+$ hammer recipes --install srt > ~/bin/srt && chmod +x ~/bin/srt
 $ srt --help
 Usage: srt COMMAND [ARGS]
 
@@ -1101,8 +1110,8 @@ so the recipe always runs the version currently in the gem.
 ### Authoring your own
 
 Drop a plain `.rb` file in `~/.config/hammer/recipes/`. The first
-`# desc: ...` comment is what shows in `hammer self:recipe`. The file
-body uses the same DSL as a Hammerfile - `task`, `namespace`, `before`,
+`# desc: ...` comment is what shows in `hammer recipes`. The file body
+uses the same DSL as a Hammerfile - `task`, `namespace`, `before`,
 `load`. Example `~/.config/hammer/recipes/json.rb`:
 
 ```ruby
@@ -1121,20 +1130,22 @@ end
 Install it the same way:
 
 ```sh
-$ hammer self:recipe install json > ~/bin/json && chmod +x ~/bin/json
+$ hammer recipes --install json ~/bin/json
 ```
 
 User-dir recipes override gem recipes with the same name, so you can
 fork without forking.
 
-### Other `self:recipe` actions
+### Other `recipes` actions
 
 ```sh
-hammer self:recipe              # list all
-hammer self:recipe install      # interactive picker, then prints stub
-hammer self:recipe show <NAME>  # cat the recipe source
-hammer self:recipe path <NAME>  # absolute path
-hammer self:recipe edit <NAME>  # open in $EDITOR (copies gem -> user dir first)
+hammer recipes                            # list all
+hammer recipes --install                  # interactive picker, then prints stub
+hammer recipes --show NAME                # cat the recipe source
+hammer recipes --path NAME                # absolute path
+hammer recipes --edit NAME                # open in $EDITOR (copies gem -> user dir first)
+hammer recipes --run  NAME [ARGS]         # run without installing its bin
+hammer recipes --run  NAME -- --help      # `--` forwards flags to the recipe
 ```
 
 ## Programmatic use

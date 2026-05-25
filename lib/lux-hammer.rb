@@ -188,12 +188,7 @@ class Hammer
     #     namespace :users do ... end
     #   end
     #
-    # `:self` is reserved for the `hammer` binary's built-ins (see
-    # Hammer::Builtins). User code that tries to open it raises.
     def namespace(name, &block)
-      if name.to_s == 'self' && !Thread.current[:hammer_builtins_loading]
-        raise Error, "namespace 'self' is reserved for hammer's built-in commands"
-      end
       sub = Class.new(Hammer)
       # Track the top-level CLI class so cross-invocation
       # (`hammer 'ns:cmd'`) from inside a namespaced command dispatches
@@ -667,7 +662,7 @@ class Hammer
       entries.each do |name, file|
         desc = Hammer::Recipe.desc(file)
         installed = Hammer::Recipe.installed_path(name)
-        suffix = installed ? "(installed: #{installed})" : "[install: #{program_name} self:recipe install #{name}]"
+        suffix = installed ? "(installed: #{installed})" : "[install: #{program_name} recipes --install #{name}]"
         Shell.say "  #{name.ljust(width)}  # #{desc}"
         Shell.say "  #{' ' * width}    #{suffix}", :gray
       end
@@ -676,8 +671,8 @@ class Hammer
     # `extended:` is accepted for parity with `print_help` but intentionally
     # not used here - the global-flags / Hammerfile-example / footer block
     # is root-help-only. A namespace listing is just the commands under
-    # that prefix; tool-meta noise (self:, Recipes:, --update alias) is
-    # reserved for `hammer --help` at the top level.
+    # that prefix; tool-meta noise (Recipes: section) is reserved for
+    # `hammer --help` at the top level.
     def print_namespace_help(prefix, ns, full: false, extended: false)
       Shell.say "Usage: #{program_name} #{prefix}:COMMAND [ARGS]", :cyan
       rows = []
@@ -741,7 +736,7 @@ class Hammer
 
     # Hammerfile cheat-sheet shown under `hammer --help`. Same content
     # as `hammer --init` writes - single source of truth via
-    # `Hammer::STARTER_HAMMERFILE`. For exhaustive docs see `hammer self:ai`.
+    # `Hammer::STARTER_HAMMERFILE`. For exhaustive docs see `hammer agents`.
     def print_hammerfile_example
       Shell.say ''
       Shell.say 'Hammerfile example:', :yellow
@@ -891,7 +886,7 @@ class Hammer
       Shell.print_error "unknown recipe: #{name}"
       Shell.say 'available recipes:', :yellow
       Recipe.all.keys.sort.each { |n| Shell.say "  #{n}" }
-      Shell.say 'try `hammer self:recipe` to list with descriptions', :gray
+      Shell.say 'try `hammer recipes` to list with descriptions', :gray
       exit 1
     end
 
@@ -923,7 +918,7 @@ class Hammer
     desc 'My project tools'
 
     # `namespace :name do ... end` groups tasks under a colon prefix.
-    # Address as `hammer demo:greet`. `:self` is reserved for built-ins.
+    # Address as `hammer demo:greet`.
     namespace :demo do
       # run before every task - global, or on a namespace
       before { say.gray "[demo] booting in #{Dir.pwd}" }
@@ -947,12 +942,12 @@ class Hammer
     end
   RUBY
 
-  # Default install dir used by install.sh and `hammer --update`.
+  # Default install dir used by install.sh and `hammer update`.
   SELF_UPDATE_DIR  ||= File.expand_path('~/.local/share/lux-hammer')
   SELF_UPDATE_REPO ||= 'https://github.com/dux/hammer.git'
   SELF_INSTALL_URL ||= 'https://raw.githubusercontent.com/dux/hammer/main/install.sh'
 
-  # `hammer --update`: pull main in the install-script checkout and
+  # `hammer update`: pull main in the install-script checkout and
   # reinstall the gem. Assumes the install.sh layout - if the dir is
   # missing, point the user at the curl-pipe installer.
   def self.self_update
@@ -987,26 +982,25 @@ class Hammer
   # finds a Hammerfile, evaluates it as the block DSL, then dispatches
   # ARGV against the resulting CLI.
   #
-  # The `self:` namespace (recipe management, AGENTS.md dump, self-
-  # update) is registered on-demand when the user invokes help or
-  # types a `self:` path - see `builtins_triggered?`.
+  # `--system` forces the no-Hammerfile branch even from inside a
+  # project - the escape hatch for reaching `recipes`/`init` when a
+  # user-defined task tree would otherwise own the root.
   def self.cli(argv = ARGV)
-    wants_self = wants_self_namespace?(argv)
-    needs_no_project = wants_self || dispatches_to_builtin?(argv)
+    argv = argv.dup
+    force_system = !!argv.delete('--system')
 
-    path = find_hammerfile(Dir.pwd)
+    path = force_system ? nil : find_hammerfile(Dir.pwd)
     unless path
-      # No Hammerfile - still allow built-ins (:default, :help, self:*)
-      # to run. Bare `hammer`, `hammer --version`, `hammer --help` etc.
-      # all work without a project. Other commands print the "create one"
-      # message.
-      if needs_no_project
+      # No Hammerfile (or --system) - all built-ins are reachable. Bare
+      # `hammer`, `hammer recipes`, `hammer update`, `hammer agents`,
+      # `hammer version`, `hammer init` all work.
+      if force_system || dispatches_to_builtin?(argv) || looks_like_builtin?(argv)
         klass = Class.new(Hammer)
         klass.instance_variable_set(:@hammer_binary, true)
         klass.program_name
         require_relative 'hammer/builtins'
         Hammer::Builtins.register_core(klass)
-        Hammer::Builtins.register_self(klass) if wants_self
+        Hammer::Builtins.register_no_project(klass)
         klass.start(argv)
         return
       end
@@ -1030,14 +1024,14 @@ class Hammer
       Shell.say STARTER_HAMMERFILE
       Shell.say ''
       bin = File.basename($PROGRAM_NAME)
-      Shell.say "tip: run `#{bin} --init` to drop the example above into ./Hammerfile", :gray
-      Shell.say "tip: run `#{bin} self:ai` for AI-friendly Hammerfile authoring docs", :gray
+      Shell.say "tip: run `#{bin} init` to drop the example above into ./Hammerfile", :gray
+      Shell.say "tip: run `#{bin} agents` for AI-friendly Hammerfile authoring docs", :gray
       exit 1
     end
 
     klass = Class.new(Hammer)
     # Mark this class as the `hammer` binary's root so help output can
-    # surface binary-only sections (`Recipes:`, `self:` namespace).
+    # surface binary-only sections (`Recipes:` listing).
     klass.instance_variable_set(:@hammer_binary, true)
     # Resolve before chdir so paths like `bin/foo` stay relative to the
     # cwd the user actually invoked from. `program_name` memoizes.
@@ -1052,36 +1046,37 @@ class Hammer
     # are NOT visible during Hammerfile evaluation, only inside handlers.
     Hammer::Dotenv.load(Dir.pwd) if klass.dotenv_enabled?
 
-    # Built-ins register AFTER Hammerfile eval so user-defined `:default`
-    # / `:help` win (the `unless commands.key?(...)` guards in
-    # register_core skip the built-in when overridden - no redefinition
-    # warning).
+    # Core built-ins register AFTER Hammerfile eval so user-defined
+    # tasks win (the `unless commands.key?(...)` guards in register_core
+    # skip the built-in when overridden - no redefinition warning).
+    # `register_no_project` (:recipes, :init) is intentionally NOT
+    # called here - those would clash too easily with user tasks. Use
+    # `hammer --system recipes` to reach them from inside a project.
     require_relative 'hammer/builtins'
     Hammer::Builtins.register_core(klass)
-    Hammer::Builtins.register_self(klass) if wants_self_namespace?(argv)
 
     klass.start(argv)
   end
 
-  # True if argv references the `self:` namespace OR explicitly asks
-  # for help - both should surface the hammer-binary management
-  # commands in listings. Kept lazy (vs always-on) so `self:` and
-  # `Recipes:` don't pollute bare `hammer` output.
-  def self.wants_self_namespace?(argv)
-    argv.any? do |a|
-      a == 'self' || a.start_with?('self:') ||
-        a == 'help' || a == '-h' || a == '--help'
-    end
-  end
-
   # True if argv goes through a built-in dispatch path (`:default` or
   # `:help`) - meaning bare `hammer`, leading-flag invocations like
-  # `hammer --version`, or explicit help requests. These don't need a
-  # project Hammerfile to run.
+  # `hammer -h`, or explicit help requests. These don't need a project
+  # Hammerfile to run.
   def self.dispatches_to_builtin?(argv)
     return true if argv.empty?
     first = argv.first
     first == 'help' || first == '-h' || first == '--help' || first.start_with?('-')
+  end
+
+  # True if argv names a built-in task (`recipes`, `update`, `agents`,
+  # `version`, `init`). Used in the no-Hammerfile branch to wake up the
+  # built-ins for invocations like `hammer recipes` that aren't a flag
+  # or help request.
+  BUILTIN_TASKS ||= %w[recipes update agents version init].freeze
+  def self.looks_like_builtin?(argv)
+    first = argv.first
+    return false unless first
+    BUILTIN_TASKS.include?(first) || BUILTIN_TASKS.any? { |t| first.start_with?("#{t}:") }
   end
 
   # Walk up the directory tree looking for a Hammerfile.

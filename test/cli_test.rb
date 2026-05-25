@@ -55,13 +55,13 @@ class CliTest < Minitest::Test
   def test_missing_hammerfile_with_help_shows_builtins
     # An explicit help request (`--help` / `-h` / `help`) with no
     # Hammerfile is treated as "what can hammer do?" - we surface the
-    # self: namespace and Recipes: section so the user can discover the
+    # built-in tasks and the Recipes: section so users can discover
     # tool-meta commands without having to bootstrap a project first.
     Dir.mktmpdir do |dir|
       Dir.chdir(dir) do
         out, = capture { Hammer.cli(['--help']) }
-        assert_includes out, 'self:ai'
-        assert_includes out, 'self:recipe'
+        assert_includes out, 'agents'
+        assert_includes out, 'recipes'
         assert_includes out, 'Recipes:'
       end
     end
@@ -77,23 +77,23 @@ class CliTest < Minitest::Test
     end
   end
 
-  def test_self_ai_dumps_agents_md
+  def test_agents_task_dumps_agents_md
     Dir.mktmpdir do |dir|
       Dir.chdir(dir) do
-        out, = capture { Hammer.cli(['self:ai']) }
+        out, = capture { Hammer.cli(['agents']) }
         assert_includes out, 'AGENTS.md - lux-hammer'
         assert_includes out, 'DSL surface'
       end
     end
   end
 
-  def test_self_ai_works_with_hammerfile_present
+  def test_agents_task_works_with_hammerfile_present
     with_hammerfile(<<~'RUBY') do |_|
       task :hi do
         proc { |_| say 'HANDLER_FIRED_UNIQUE_MARKER' }
       end
     RUBY
-      out, = capture { Hammer.cli(['self:ai']) }
+      out, = capture { Hammer.cli(['agents']) }
       assert_includes out, 'AGENTS.md - lux-hammer'
       refute_includes out, 'HANDLER_FIRED_UNIQUE_MARKER'
     end
@@ -101,48 +101,26 @@ class CliTest < Minitest::Test
 
   # ----- :default + :help built-ins ----------------------------------
 
-  def test_version_flag_prints_version
+  def test_version_task_prints_version
     with_hammerfile("task :x do; proc { |_| }; end\n") do
-      out, = capture { Hammer.cli(['--version']) }
+      out, = capture { Hammer.cli(['version']) }
       assert_includes out, Hammer::VERSION
     end
   end
 
-  def test_version_short_flag_prints_version
-    with_hammerfile("task :x do; proc { |_| }; end\n") do
-      out, = capture { Hammer.cli(['-v']) }
-      assert_includes out, Hammer::VERSION
-    end
-  end
-
-  def test_version_flag_works_without_hammerfile
+  def test_version_task_works_without_hammerfile
     Dir.mktmpdir do |dir|
       Dir.chdir(dir) do
-        out, = capture { Hammer.cli(['--version']) }
+        out, = capture { Hammer.cli(['version']) }
         assert_includes out, Hammer::VERSION
       end
     end
   end
 
-  def test_ai_flag_dumps_agents_md
-    with_hammerfile("task :x do; proc { |_| }; end\n") do
-      out, = capture { Hammer.cli(['--ai']) }
-      assert_includes out, 'AGENTS.md - lux-hammer'
-    end
-  end
-
-  def test_recipes_flag_lists_recipes
-    with_hammerfile("task :x do; proc { |_| }; end\n") do
-      out, = capture { Hammer.cli(['--recipes']) }
-      # srt is bundled with the gem; should always show up in the listing.
-      assert_includes out, 'srt'
-    end
-  end
-
-  def test_init_flag_writes_starter_hammerfile
+  def test_init_writes_starter_hammerfile
     Dir.mktmpdir do |dir|
       Dir.chdir(dir) do
-        out, = capture { Hammer.cli(['--init']) }
+        out, = capture { Hammer.cli(['init']) }
         assert_includes out, 'created'
         target = File.join(dir, 'Hammerfile')
         assert File.exist?(target)
@@ -156,7 +134,7 @@ class CliTest < Minitest::Test
   end
 
   def test_help_uses_same_template_as_init
-    # `--help`'s Hammerfile example and `--init`'s output must come from
+    # `--help`'s Hammerfile example and `init`'s output must come from
     # the same source so the two never drift.
     with_hammerfile("task :x do; desc 'X'; proc { |_| }; end\n") do
       out, = capture { Hammer.cli(['--help']) }
@@ -165,23 +143,14 @@ class CliTest < Minitest::Test
     end
   end
 
-  def test_init_flag_refuses_when_hammerfile_exists
+  def test_init_refuses_when_hammerfile_exists
+    # `init` is no-Hammerfile only - inside a project it's not registered
+    # at all, so the dispatch fails before write_starter_hammerfile runs.
+    # Reach it via --system to exercise the file-exists guard.
     with_hammerfile("task :x do; proc { |_| }; end\n") do
-      _, err, status = capture_exit { Hammer.cli(['--init']) }
+      _, err, status = capture_exit { Hammer.cli(['--system', 'init']) }
       assert_equal 1, status
       assert_includes err, 'Hammerfile already exists'
-    end
-  end
-
-  def test_default_task_options_section_in_help
-    with_hammerfile("task :x do; desc 'X'; proc { |_| }; end\n") do
-      out, = capture { Hammer.cli(['--help']) }
-      assert_includes out, 'Default task options:'
-      refute_includes out, 'Global:'  # old label gone
-      assert_includes out, '--version'
-      assert_includes out, '--init'
-      assert_includes out, '--ai'
-      assert_includes out, '--recipes'
     end
   end
 
@@ -204,8 +173,9 @@ class CliTest < Minitest::Test
       out2, = capture { Hammer.cli([]) }
       assert_includes out2, 'fell through'
 
-      # Built-in --version no longer fires - user replaced :default.
-      _, err, _ = capture_exit { Hammer.cli(['--version']) }
+      # Built-in --version is gone entirely (`hammer version` is the new
+      # path) so this just verifies unknown flags surface from user :default.
+      _, err, _ = capture_exit { Hammer.cli(['--frob']) }
       assert_includes err, 'unknown option'
     end
   end

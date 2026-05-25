@@ -1,23 +1,29 @@
 class Hammer
-  # Lazy-loaded "built-ins" attached under the reserved `self:` namespace
-  # of the `hammer` binary. Hosts management commands (recipes, AGENTS.md
-  # dump, self-update) that should not appear on every user-command run.
-  # `Hammer.cli` only calls `register` when argv shows the user is
-  # asking for help or invoking a `self:`-prefixed command.
+  # Built-in tasks of the `hammer` binary - all live at the root level
+  # (no reserved namespace). Two registration entry points:
+  #
+  # * register_core - tasks always available (subject to user override
+  #   via the `unless commands.key?(...)` guard): :default, :help,
+  #   :update, :agents, :version. These coexist with Hammerfile tasks.
+  #
+  # * register_no_project - tasks meaningful only when no Hammerfile is
+  #   loaded (or `--system` was passed): :recipes, :init. These would
+  #   collide too easily with user tasks if always registered, so the
+  #   Hammerfile branch skips them.
   module Builtins
     module_function
 
-    # Core built-ins: `:default` and `:help`. Always registered (cheap;
-    # needed for bare `hammer`, leading-flag invocations, and explicit
-    # help requests - see `Hammer.dispatch`).
-    #
-    # User Hammerfiles can override either by defining their own
-    # `task :default` / `task :help`. The guards below skip registration
-    # when an override is already present, so no redefinition warning
-    # fires. Hammer.cli calls this AFTER evaluating the Hammerfile.
     def register_core(klass)
       register_help(klass)    unless klass.commands.key?('help')
       register_default(klass) unless klass.commands.key?('default')
+      register_update(klass)  unless klass.commands.key?('update')
+      register_agents(klass)  unless klass.commands.key?('agents')
+      register_version(klass) unless klass.commands.key?('version')
+    end
+
+    def register_no_project(klass)
+      register_recipes(klass) unless klass.commands.key?('recipes')
+      register_init(klass)    unless klass.commands.key?('init')
     end
 
     def register_help(klass)
@@ -41,33 +47,93 @@ class Hammer
       end
     end
 
-    # `:default` fires when argv is empty OR argv.first is a flag (other
-    # than -h/--help). Hidden from listings (no desc). User Hammerfiles
-    # can replace it to add their own global flags - convention is to
-    # fall through to `print_help` when no flag matched (the brief
-    # project-listing view; explicit `--help` / `help` still routes to
-    # the `:help` task for the extended view).
+    # `:default` fires on bare `hammer` and on leading-flag invocations
+    # (other than -h/--help). Hidden from listings (no desc). All it
+    # does now is print help - the old flag opts (--update, --ai, ...)
+    # moved to dedicated tasks (:update, :agents, ...).
     def register_default(klass)
       klass.class_eval do
         task :default do
-          opt :version, type: :boolean, alias: :v, desc: 'print lux-hammer version'
-          opt :update,  type: :boolean,           desc: 'rebuild + reinstall the gem from main'
-          opt :ai,      type: :boolean,           desc: 'dump AGENTS.md (AI-friendly authoring docs)'
-          opt :recipes, type: :boolean,           desc: 'list available recipes'
-          opt :init,    type: :boolean,           desc: 'write a starter Hammerfile in cwd'
+          proc { self.class.root.print_help }
+        end
+      end
+    end
+
+    def register_update(klass)
+      klass.class_eval do
+        task :update do
+          desc 'Rebuild + reinstall lux-hammer from main'
+          proc { Hammer.self_update }
+        end
+      end
+    end
+
+    def register_agents(klass)
+      klass.class_eval do
+        task :agents do
+          desc 'Print AGENTS.md (Hammerfile authoring docs for AI assistants)'
+          proc { Hammer.print_ai_help }
+        end
+      end
+    end
+
+    def register_version(klass)
+      klass.class_eval do
+        task :version do
+          desc 'Print lux-hammer version'
+          proc { puts Hammer::VERSION }
+        end
+      end
+    end
+
+    def register_init(klass)
+      klass.class_eval do
+        task :init do
+          desc 'Write a starter Hammerfile in the current directory'
+          proc { Hammer::Builtins.write_starter_hammerfile }
+        end
+      end
+    end
+
+    # `:recipes` rolls all recipe-management actions into one task. Bare
+    # invocation lists; opts pick the action and positional args carry
+    # the recipe name (and optional target path for --install). Run via
+    # `--run NAME [ARGS]` - use `--` to forward flags to the recipe
+    # itself (e.g. `hammer recipes --run srt -- --help`).
+    def register_recipes(klass)
+      klass.class_eval do
+        task :recipes do
+          desc <<~TXT
+            Manage recipes - the standalone Hammerfile-style scripts
+            bundled with the gem (and under ~/.config/hammer/recipes).
+            Bare invocation lists; flags pick the action.
+          TXT
+          opt :install, type: :boolean, desc: 'install recipe stub (picker if no NAME). With TARGET path: write + chmod.'
+          opt :show,    type: :boolean, desc: 'cat recipe source'
+          opt :path,    type: :boolean, desc: 'print recipe abs path'
+          opt :edit,    type: :boolean, desc: 'open recipe in $EDITOR (copies gem -> user dir first)'
+          opt :run,     type: :boolean, desc: 'run a recipe without installing its bin (forwards remaining args)'
+          example 'recipes'
+          example 'recipes --install srt ~/bin/srt    # write + chmod in one shot'
+          example 'recipes --install srt > ~/bin/srt && chmod +x $_'
+          example 'recipes --show srt'
+          example 'recipes --run srt extract movie.mp4'
+          example 'recipes --run srt -- --help        # -- forwards flags to the recipe'
           proc do |opts|
-            if opts[:version]
-              puts Hammer::VERSION
-            elsif opts[:update]
-              Hammer.self_update
-            elsif opts[:ai]
-              Hammer.print_ai_help
-            elsif opts[:recipes]
-              Hammer::Builtins::Recipes.list
-            elsif opts[:init]
-              Hammer::Builtins.write_starter_hammerfile
+            args = opts[:args]
+            if opts[:install]
+              Hammer::Builtins::RecipesActions.install(args[0], args[1])
+            elsif opts[:show]
+              Hammer::Builtins::RecipesActions.show(Hammer::Builtins::RecipesActions.require_name!(args[0], 'show'))
+            elsif opts[:path]
+              Hammer::Builtins::RecipesActions.path(Hammer::Builtins::RecipesActions.require_name!(args[0], 'path'))
+            elsif opts[:edit]
+              Hammer::Builtins::RecipesActions.edit(Hammer::Builtins::RecipesActions.require_name!(args[0], 'edit'))
+            elsif opts[:run]
+              name = Hammer::Builtins::RecipesActions.require_name!(args[0], 'run')
+              Hammer.recipe(name, args[1..])
             else
-              self.class.root.print_help
+              Hammer::Builtins::RecipesActions.list
             end
           end
         end
@@ -75,7 +141,7 @@ class Hammer
     end
 
     # Writes ./Hammerfile with the canonical starter template. Refuses
-    # if one already exists - we don't want `--init` to clobber.
+    # if one already exists - `init` must not clobber.
     def write_starter_hammerfile
       target = File.join(Dir.pwd, 'Hammerfile')
       if File.exist?(target)
@@ -86,74 +152,15 @@ class Hammer
       Shell.say "created #{target}", :green
     end
 
-    # Wire the `self:` namespace into `klass`. Lazy: only loaded when
-    # argv references `self` or `self:*` (kept out of normal listings).
-    # Idempotent - safe to call twice; the second call replaces the
-    # existing subclass.
-    def register_self(klass)
-      Thread.current[:hammer_builtins_loading] = true
-      klass.namespace(:self) do
-        task :ai do
-          desc 'Print AGENTS.md (AI-friendly Hammerfile authoring docs)'
-          proc { Hammer.print_ai_help }
-        end
-
-        task :update do
-          desc 'Update lux-hammer from github main (requires install.sh checkout)'
-          proc { Hammer.self_update }
-        end
-
-        task :recipe do
-          desc <<~TXT
-            Manage recipes. First positional argument is the action.
-
-              (no args)              list all recipes
-              install [NAME] [PATH]  install stub. No PATH: print to stdout. With PATH: write + chmod +x.
-              show    NAME           cat recipe source
-              path    NAME           print recipe abs path
-              edit    NAME           open recipe in $EDITOR
-              run     NAME [ARGS]    run a recipe without installing its bin
-          TXT
-          example 'self:recipe'
-          example 'self:recipe install srt ~/bin/srt        # write + chmod in one shot'
-          example 'self:recipe install srt > ~/bin/srt && chmod +x $_'
-          example 'self:recipe show srt'
-          example 'self:recipe run srt extract movie.mp4'
-          example 'self:recipe run srt -- --help            # -- forwards flags to the recipe'
-          proc do |opts|
-            action, name, *rest = opts[:args]
-            Hammer::Builtins::Recipes.dispatch(action, name, rest)
-          end
-        end
-      end
-    ensure
-      Thread.current[:hammer_builtins_loading] = nil
-    end
-
-    # Implementations of the `self:recipe <action>` sub-commands, plus
-    # the no-action listing view. Kept in its own module so the
-    # namespace definition above stays small and skimmable.
-    module Recipes
+    # Implementations of the `recipes` task's action flags, plus the
+    # no-flag listing view. Separate module so the task definition above
+    # stays small.
+    module RecipesActions
       module_function
-
-      def dispatch(action, name, rest = [])
-        case action
-        when nil       then list
-        when 'install' then install(name, rest.first)
-        when 'show'    then show(require_name!(name, 'show'))
-        when 'path'    then path(require_name!(name, 'path'))
-        when 'edit'    then edit(require_name!(name, 'edit'))
-        when 'run'     then Hammer.recipe(require_name!(name, 'run'), rest)
-        else
-          Shell.print_error "unknown action: #{action}"
-          Shell.say 'valid: install, show, path, edit, run (or omit for list)', :yellow
-          exit 1
-        end
-      end
 
       def require_name!(name, action)
         return name if name
-        Shell.print_error "missing recipe name (usage: self:recipe #{action} NAME)"
+        Shell.print_error "missing recipe name (usage: recipes --#{action} NAME)"
         exit 1
       end
 
@@ -175,7 +182,7 @@ class Hammer
           Shell.say "#{source}:", :yellow
           items.each_key do |name|
             _n, desc, installed = rows.find { |r| r.first == name }
-            status = installed ? "(installed: #{installed})" : "[install: hammer self:recipe install #{name}]"
+            status = installed ? "(installed: #{installed})" : "[install: hammer recipes --install #{name}]"
             line = "  #{name.ljust(width)}  # #{desc}"
             Shell.say line
             Shell.say "  #{' ' * width}    #{status}", :gray
@@ -225,7 +232,7 @@ class Hammer
       end
 
       # For a gem recipe, offer to copy to user dir first so edits
-      # survive `hammer self:update`. Then exec $EDITOR on the file.
+      # survive `hammer update`. Then exec $EDITOR on the file.
       def edit(name)
         path = Hammer::Recipe.path(name) or fail_unknown(name)
         editor = ENV['EDITOR'] || ENV['VISUAL']
