@@ -190,7 +190,9 @@ explicit ADR-level discussion. Keys:
   actually picked when fuzzy matching kicks in. Only options that
   differ from their default are listed; booleans render as `--flag`
   / `--no-flag`. Help paths (`-h`, bare namespace) short-circuit
-  before the banner.
+  before the banner. Set `HAMMER_QUIET=1` to suppress the banner
+  globally - useful when a task writes machine-readable output to
+  stdout (e.g. a JSON-emitting Claude Code / Codex hook).
 * There is **no per-level dispatch**. A namespace is a container, not a
   CLI of its own. Do not reintroduce `subclass.start(remaining_argv)`.
 * `start(argv)` is a two-step pipeline: `split_chain(argv)` (private)

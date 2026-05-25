@@ -548,7 +548,7 @@ class Hammer
 
       positional, opts = Parser.new(cmd.options).parse(argv)
       opts[:args] = positional
-      print_run_banner(cmd, full || cmd.name, positional, opts) unless quiet
+      print_run_banner(cmd, full || cmd.name, positional, opts) unless quiet || ENV['HAMMER_QUIET']
       instance = new
       run_before_hooks(instance, opts)
       run_needs(cmd)
