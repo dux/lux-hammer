@@ -54,7 +54,17 @@ class Hammer
     def register_default(klass)
       klass.class_eval do
         task :default do
-          proc { self.class.root.print_help }
+          opt :version, type: :boolean, alias: :v, desc: 'print lux-hammer version'
+          # Inlined rather than dispatched to :version - going through
+          # `hammer :version` would print the gray run banner. The
+          # implementation is one line; not worth the indirection.
+          proc do |opts|
+            if opts[:version]
+              puts Hammer::VERSION
+            else
+              self.class.root.print_help
+            end
+          end
         end
       end
     end
