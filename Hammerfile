@@ -11,37 +11,6 @@ task :test do
 end
 
 namespace :gem do
-  task :version do
-    desc 'Print the current gem version'
-    proc { say File.read('.version').strip }
-  end
-
-  namespace :version do
-    task :inc do
-      desc 'Bump the version in .version (patch by default)'
-      opt :bump, default: 'patch', desc: 'major | minor | patch'
-
-      proc do |opts|
-        file  = '.version'
-        old   = File.read(file).strip
-        parts = old.split('.').map(&:to_i)
-        error "bad version in #{file}: #{old.inspect}" unless parts.size == 3
-
-        case opts[:bump]
-        when 'major' then parts = [parts[0] + 1, 0, 0]
-        when 'minor' then parts = [parts[0], parts[1] + 1, 0]
-        when 'patch' then parts[2] += 1
-        else error "unknown bump: #{opts[:bump]} (major | minor | patch)"
-        end
-
-        newv = parts.join('.')
-        File.write('.version.prev', "#{old}\n")   # for gem:inc_version:undo
-        File.write(file, "#{newv}\n")
-        say "#{old} -> #{newv}", :green
-      end
-    end
-  end
-
   task :build do
     desc 'Build the lux-hammer gem'
     proc do
@@ -56,16 +25,33 @@ namespace :gem do
 
   task :publish do
     desc 'Inc ver, build and push the gem to RubyGems'
-    opt :yes, type: :boolean, default: false, desc: 'Skip confirmation prompt'
+    opt :bump, default: 'patch',          desc: 'major | minor | patch'
+    opt :yes,  type: :boolean, default: false, desc: 'Skip confirmation prompt'
 
     proc do |opts|
-      hammer 'gem:version:inc'
+      file  = '.version'
+      old   = File.read(file).strip
+      parts = old.split('.').map(&:to_i)
+      error "bad version in #{file}: #{old.inspect}" unless parts.size == 3
+
+      case opts[:bump]
+      when 'major' then parts = [parts[0] + 1, 0, 0]
+      when 'minor' then parts = [parts[0], parts[1] + 1, 0]
+      when 'patch' then parts[2] += 1
+      else error "unknown bump: #{opts[:bump]} (major | minor | patch)"
+      end
+
+      newv = parts.join('.')
+      File.write('.version.prev', "#{old}\n")
+      File.write(file, "#{newv}\n")
+      say "#{old} -> #{newv}", :green
+
       hammer 'gem:build'
 
-      file = Dir.glob('lux-hammer-*.gem').sort.last
-      error 'no built gem found' unless file
-      error 'cancelled' unless opts[:yes] || yes?("push #{file} to RubyGems?")
-      sh "gem push #{file}"
+      gem_file = Dir.glob('lux-hammer-*.gem').sort.last
+      error 'no built gem found' unless gem_file
+      error 'cancelled' unless opts[:yes] || yes?("push #{gem_file} to RubyGems?")
+      sh "gem push #{gem_file}"
     end
   end
 end
