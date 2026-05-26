@@ -991,6 +991,17 @@ class Hammer
     argv = argv.dup
     force_system = !!argv.delete('--system')
 
+    # Shebang invocation: `hammer /path/to/script ...args` (kernel passes
+    # the script path as argv[0] for `#!/usr/bin/env hammer` files).
+    # Treat the script as a self-contained CLI: no Hammerfile lookup, no
+    # chdir (commands run in the caller's cwd), no `hammer`-binary
+    # built-ins/banners. Detection requires a `#!`+`hammer` first line so
+    # task names that happen to be paths don't get hijacked.
+    if (script = shebang_script(argv.first))
+      argv.shift
+      return run_shebang(script, argv)
+    end
+
     path = force_system ? nil : find_hammerfile(Dir.pwd)
     unless path
       # No Hammerfile (or --system) - all built-ins are reachable. Bare
@@ -1057,6 +1068,33 @@ class Hammer
     require_relative 'hammer/builtins'
     Hammer::Builtins.register_core(klass)
 
+    klass.start(argv)
+  end
+
+  # Returns the script path if `arg` looks like a shebang script that
+  # delegates to hammer (first line starts with `#!` and mentions
+  # `hammer`). Returns nil otherwise. Used by `cli` to detect
+  # `#!/usr/bin/env hammer` invocations where the kernel passes the
+  # script path as argv[0].
+  def self.shebang_script(arg)
+    return nil unless arg
+    return nil if arg.start_with?('-')
+    return nil unless File.file?(arg) && File.readable?(arg)
+    head = File.open(arg, &:gets).to_s
+    return nil unless head.start_with?('#!') && head.include?('hammer')
+    arg
+  end
+
+  # Evaluate a shebang script as a self-contained CLI. Mirrors `recipe`
+  # semantics: no chdir, no `@hammer_binary` flag, no `register_core`
+  # built-ins (so the script's `--help` shows only what it defines).
+  # `program_name` is the script's basename so help reads "myscript foo"
+  # rather than "hammer foo" - works even when invoked via a symlink in
+  # PATH, since argv[0] is the path the user typed.
+  def self.run_shebang(path, argv)
+    klass = Class.new(Hammer)
+    klass.instance_variable_set(:@program_name, File.basename(path))
+    Builder.new(klass).evaluate(File.read(path), path)
     klass.start(argv)
   end
 
