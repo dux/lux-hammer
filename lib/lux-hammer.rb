@@ -96,6 +96,7 @@ class Hammer
       m = method_name
       arity = instance_method(method_name).arity
       cmd.handler = arity.zero? ? proc { send(m) } : proc { |opts| send(m, opts) }
+      cmd.finalize!
       commands[cmd.name] = cmd
 
       @pending_desc = nil
@@ -168,6 +169,7 @@ class Hammer
         warn_redefinition('task', cmd.name, prev.location, cmd.location)
       end
 
+      cmd.finalize!
       commands[cmd.name] = cmd
 
       # `task` ignores pending class-level state, but clear it so a
