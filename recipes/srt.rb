@@ -1,4 +1,6 @@
+#!/usr/bin/env hammer
 # desc: Local SRT extraction via whisper.cpp
+# executable: chmod +x this file and run directly, or symlink into PATH
 
 desc <<~TXT
   Local subtitle extraction with whisper.cpp.

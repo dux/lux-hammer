@@ -1,4 +1,6 @@
+#!/usr/bin/env hammer
 # desc: personal LLM utility CLI (memory store, prompt-token expander, ...)
+# executable: chmod +x this file and run directly, or symlink into PATH
 
 desc <<~TXT
   llm - personal LLM utility CLI
@@ -54,6 +56,7 @@ namespace :memory do
     end
     [meta, body.to_s.sub(/\A\n+/, '')]
   end
+
   task :list do
     desc 'List stored memories with type and one-line description'
     example 'llm memory list'

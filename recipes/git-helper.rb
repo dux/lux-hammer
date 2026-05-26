@@ -1,4 +1,6 @@
+#!/usr/bin/env hammer
 # desc: work with git (commit, push, pull, rebase, branch, redate, ...)
+# executable: chmod +x this file and run directly, or symlink into PATH
 
 desc <<~TXT
   Git helper. Short aliases over common `git` workflows.
