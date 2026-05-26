@@ -946,6 +946,41 @@ Hammer.run ARGV do
 end
 ```
 
+### `#!/usr/bin/env hammer` (single-file scripts)
+
+For a one-off CLI that lives as a single executable file, point the
+shebang straight at `hammer` - no `require`, no boilerplate:
+
+```ruby
+#!/usr/bin/env hammer
+# desc: tiny greeter
+
+task :hello do
+  desc 'say hi'
+  opt :loud, type: :boolean, alias: :l
+  proc do |opts|
+    msg = "hello #{opts[:args].first || 'world'}"
+    say.cyan(opts[:loud] ? msg.upcase : msg)
+  end
+end
+```
+
+```sh
+$ chmod +x greet
+$ ./greet hello dino -l
+HELLO DINO
+$ ./greet --help
+Usage: greet COMMAND [ARGS]
+  ...
+```
+
+The file body is plain Hammerfile DSL (`task`, `namespace`, `before`,
+`load`). `hammer` detects the shebang, evaluates the script as a
+self-contained CLI, and uses the script's basename as the program name
+in help - so `./greet --help` reads "Usage: greet ..." rather than
+"Usage: hammer ...". The current working directory is left alone, so
+relative paths inside the script resolve where the user ran it.
+
 ## Complete example (every feature)
 
 ```ruby
@@ -1192,21 +1227,19 @@ few small things that have been bugging me about both for years.
 
 | | Thor | hammer |
 |-|-|-|
-| Lines of code | ~6,000 | ~400 |
 | Runtime deps | a few | zero |
-| Root constants | `Thor`, `Thor::Group`, `Thor::Shell`, `Thor::Actions`, ... | just `Hammer` |
 | Command DSL | `desc 'usage', 'help'` + `method_option` + `def name(arg)` | `task :name do ... proc do \|opts\| end end` (or classic `desc` + `def`) |
 | Opts container | `Thor::CoreExt::HashWithIndifferentAccess` | plain `Hash` with symbol keys |
 | Positional args | method positional params + `method_option`, two parallel systems | declared-order opts fill from positional, single system |
 | Sub-namespaces | `register SubClass, 'name', '...'` (inheritance ceremony) | `namespace :name do ... end` (no classes needed) |
+| Command aliases | none (workarounds via `map`) | `alt :s, :srv` |
+| Pre-hooks | none built-in | `before { ... }` per scope, `needs :env` per command |
+| Chained dispatch | no | `hammer build + deploy + notify` |
 | Cross-invoke | `invoke 'name', [args], opts` | `hammer :name, **opts` (looks like a method call) |
 | Inline CLI | class only | class DSL **or** `Hammer.run do ... end` block DSL **or** a `Hammerfile` |
 
 **What hammer does better and why:**
 
-* **One root constant.** Thor exposes `Thor`, `Thor::Group`, `Thor::Shell`,
-  `Thor::Actions` at the top level - Bundler had to vendor its own copy at
-  `Bundler::Thor` to avoid clashes. Hammer is just `Hammer`.
 * **The opts hash is just a Hash.** Symbol keys, always. No magic accessor
   object to remember, no string-vs-symbol confusion, no method_missing.
 * **Positional args fill opts in declaration order.** Thor either forces
@@ -1225,15 +1258,18 @@ few small things that have been bugging me about both for years.
 | | Rake | hammer |
 |-|-|-|
 | Primary use case | build/task automation with file deps | general CLIs |
-| Task file | `Rakefile` | `Hammerfile` |
+| Task file | `Rakefile` | `Hammerfile` (walks up parent dirs) |
 | Namespacing | colon paths (`db:migrate`) | colon paths (`db:migrate`) - parity |
 | Per-task options | `task[a,b,c]` positional only | typed `opt`s with flags, aliases, defaults, required |
 | Help | `rake -T` (plain list) | bare `hammer` lists everything grouped by namespace; `hammer X -h` for per-command help with examples and defaults |
 | Cross-invoke | `Rake::Task['db:migrate'].invoke` | `hammer 'db:migrate'` |
-| Prerequisites | `task :build => [:clean, :compile]` (declarative DAG) | explicit - call `hammer :clean; hammer :compile` in the proc |
+| Prerequisites | `task :build => [:clean, :compile]` (declarative DAG) | `needs :clean, :compile` (declarative, deduped across `+` chains) |
+| Pre-hooks | none built-in | `before { ... }` scoped to root or namespace |
+| Chained dispatch | no (multi-task argv runs sequentially, no per-task flags) | `hammer build prod -v + db:migrate --pretend + deploy` |
 | File tasks | yes (mtime-based) | no |
 | Aliases | none (workarounds via re-defined tasks) | `alt :short_name` |
 | Split across files | `import 'other.rake'` | `load auto: true` (or explicit paths/globs) |
+| Shareable scripts | no | recipes (one-file CLIs installable as their own binary) |
 
 **What hammer does better and why:**
 
