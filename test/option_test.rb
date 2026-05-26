@@ -85,4 +85,16 @@ class OptionTest < Minitest::Test
     o = Hammer::Option.new(:url, req: true)
     assert o.required
   end
+
+  def test_placeholder_in_usage
+    o = Hammer::Option.new(:log, type: :string, placeholder: 't/f', desc: 'logging level')
+    assert_includes o.usage, '--log t/f'
+    assert_includes o.usage, 'logging level'
+  end
+
+  def test_custom_placeholder_shows_instead_of_uppercased_name
+    o = Hammer::Option.new(:log, placeholder: 'LEVEL')
+    assert_includes o.usage, '--log LEVEL'
+    refute_includes o.usage, 'LOG'
+  end
 end

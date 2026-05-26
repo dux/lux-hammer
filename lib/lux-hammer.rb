@@ -414,6 +414,13 @@ class Hammer
       run_command(cmd, argv, full: name, quiet: true)
     end
 
+    # True when -h or --help appears in argv before a `--` stop-marker.
+    def help_requested?(argv)
+      stop = argv.index('--')
+      scan = stop ? argv[0...stop] : argv
+      scan.include?('-h') || scan.include?('--help')
+    end
+
     public
 
     # Find a command by canonical name or alt within this class. Falls
@@ -605,30 +612,26 @@ class Hammer
       end
     end
 
-    def help_requested?(argv)
-      stop = argv.index('--')
-      scan = stop ? argv[0...stop] : argv
-      scan.include?('-h') || scan.include?('--help')
-    end
+    public
 
     # `extended: true` is the verbose `help` / `-h` / `--help` form -
     # appends global flags, the GitHub footer, and (for the hammer binary)
     # a Hammerfile example. Bare invocation passes `extended: false` so
     # the no-args output stays a clean command listing.
-    def print_help(target = nil, full: false, extended: false)
+    def print_help(target = nil, expanded: false, extended: false)
       if target
         # `help ns:` is equivalent to `ns:` - namespace listing.
         if target.end_with?(':') && target != ':'
           bare = target.chomp(':')
           ns, canonical = resolve_namespace(bare)
-          return print_namespace_help(canonical, ns, extended: extended) if ns
+          return print_namespace_help(canonical, ns) if ns
           Shell.print_error("unknown: #{target}")
           return
         end
         cmd, _, canonical = resolve(target)
         return print_command_help(cmd, canonical) if cmd
         ns, canonical = resolve_namespace(target)
-        return print_namespace_help(canonical, ns, full: full, extended: extended) if ns
+        return print_namespace_help(canonical, ns, expanded: expanded) if ns
         Shell.print_error("unknown: #{target}")
         return
       end
@@ -639,7 +642,7 @@ class Hammer
         Shell.say ''
         @app_desc.each_line { |l| Shell.say "  #{l.chomp}" }
       end
-      if full
+      if expanded
         each_command { |path, c| print_full_block(path, c) unless c.desc.empty? }
       else
         Shell.say ''
@@ -670,10 +673,9 @@ class Hammer
 
     # `extended:` is accepted for parity with `print_help` but intentionally
     # not used here - the global-flags / Hammerfile-example / footer block
-    # is root-help-only. A namespace listing is just the commands under
-    # that prefix; tool-meta noise (Recipes: section) is reserved for
-    # `hammer --help` at the top level.
-    def print_namespace_help(prefix, ns, full: false, extended: false)
+    # is root-help-only. `expanded:` is also accepted for parity; a namespace
+    # listing is always the compact command list.
+    def print_namespace_help(prefix, ns, expanded: false, extended: false)
       Shell.say "Usage: #{program_name} #{prefix}:COMMAND [ARGS]", :cyan
       rows = []
       sibling = find_namespace_sibling(prefix)

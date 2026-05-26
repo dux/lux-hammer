@@ -31,8 +31,8 @@ class Hammer
 
     # `say` with no args returns a proxy so you can write `say.cyan 'hi'`.
     # `say('')` still prints a blank line; `say('x', :cyan)` is unchanged.
-    def say(text = nil, color = nil)
-      return SayProxy.new if text.nil?
+    def say(text = :_say_no_arg, color = nil)
+      return SayProxy.new if text == :_say_no_arg
       puts paint(text, color)
     end
 
@@ -116,9 +116,9 @@ class Hammer
               $stdout.print "\e[#{items.size}A\r\e[J"
               $stdout.print "#{paint("> #{items[selected]}", :green)}\r\n"
               return selected
-            when "\x03", 'q' # Ctrl-C, q
+            when "\x03" # Ctrl-C
               $stdout.print "\e[#{items.size}A\r\e[J"
-              return nil
+              raise Interrupt
             when "\e"
               # ESC may stand alone or start an arrow sequence \e[A / \e[B.
               if IO.select([io], nil, nil, 0.01) && io.getch == '['

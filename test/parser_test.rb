@@ -111,6 +111,22 @@ class ParserTest < Minitest::Test
     assert_equal 'https://x.com', opts[:url]
   end
 
+  def test_array_type_consumes_all_positionals
+    tags = Hammer::Option.new(:tags, type: :array)
+    pos, opts = parse([tags], %w[a b c])
+    assert_equal [], pos
+    assert_equal %w[a b c], opts[:tags]
+  end
+
+  def test_array_type_after_other_opts_consumes_remaining
+    url = Hammer::Option.new(:url)
+    tags = Hammer::Option.new(:tags, type: :array)
+    pos, opts = parse([url, tags], %w[https://x.com a b c])
+    assert_equal [], pos
+    assert_equal 'https://x.com', opts[:url]
+    assert_equal %w[a b c], opts[:tags]
+  end
+
   def test_positional_skips_booleans
     verbose = Hammer::Option.new(:verbose, type: :boolean)
     url     = Hammer::Option.new(:url)

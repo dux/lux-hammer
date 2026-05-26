@@ -63,7 +63,11 @@ class Hammer
       @options.each do |opt|
         break if positional.empty?
         next if opt.boolean? || values.key?(opt.name)
-        values[opt.name] = opt.cast(positional.shift)
+        if opt.type == :array
+          values[opt.name] = opt.cast(positional.shift(positional.size))
+        else
+          values[opt.name] = opt.cast(positional.shift)
+        end
       end
 
       @options.each do |opt|
