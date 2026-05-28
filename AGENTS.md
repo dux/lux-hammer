@@ -98,10 +98,20 @@ At Hammerfile (block-DSL) top-level scope only:
 
 At class or `Hammerfile` scope:
 
-* `task :name do ... end`
+* `task :name do ... end` - redefining a task is last-write-wins. A
+  warning fires (and the entry is tagged `(redefined)` in help) **only**
+  when the task it clobbers was also defined inside the main app (cwd).
+  Overriding a task that came from outside - a framework default, plugin,
+  or gem (an absolute path outside cwd) - is treated as an intentional
+  override and stays silent. Locality is read off the location string:
+  `relativize_path` rewrites in-app absolutes to a `.`-relative form, so
+  anything still starting with `/` is external (see `app_local_location?`).
 * `namespace :name do ... end` - `:self` is reserved for the `hammer`
   binary's built-in namespace (see `lib/hammer/builtins.rb`). Defining
-  it from user code raises.
+  it from user code raises. Reopening a namespace **merges** (Rake-style):
+  the same `namespace :db` can be split across files / `load`ed fragments
+  and the blocks accumulate onto one subclass - no warning. Only a
+  duplicate *task* name warns (handled by `task`, last write wins).
 * `dotenv false` - opt out of auto `.env` / `.env.local` loading.
   Only meaningful from the `hammer` binary (`Hammer.cli`); the load
   happens after Hammerfile evaluation, before dispatch. Shell-set vars

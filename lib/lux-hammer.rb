@@ -164,7 +164,11 @@ class Hammer
       end
       cmd.handler = handler
 
-      if (prev = commands[cmd.name])
+      # Only warn when overriding a task that was also defined inside the
+      # main app. Overriding one that came from outside - a framework
+      # default, plugin, or gem - is an intentional override, so stay quiet
+      # and don't tag it `(redefined)` in help.
+      if (prev = commands[cmd.name]) && app_local_location?(prev.location)
         cmd.prev_location = prev.location
         warn_redefinition('task', cmd.name, prev.location, cmd.location)
       end
@@ -190,28 +194,29 @@ class Hammer
     #     namespace :users do ... end
     #   end
     #
+    # Reopening a namespace merges: the same `namespace :db do ... end` can
+    # be split across files (Rake-style) and the blocks accumulate onto one
+    # subclass. Only a duplicate *task* name inside warns - that's handled
+    # by `task`. The namespace subclass is created lazily on first mention.
     def namespace(name, &block)
-      sub = Class.new(Hammer)
-      # Track the top-level CLI class so cross-invocation
-      # (`hammer 'ns:cmd'`) from inside a namespaced command dispatches
-      # against the full tree, not just the current namespace.
-      sub.instance_variable_set(:@root, root)
-      # Parent link, so `before` hooks defined further up the namespace
-      # tree can be collected and run outer -> inner before a command.
-      sub.instance_variable_set(:@parent, self)
-      # Share the parent's resolved program_name so help banners show
-      # "myapp ns:cmd" with the same prefix everywhere - and so the value
-      # captured pre-chdir (see `Hammer.cli`) survives into nested classes.
-      sub.instance_variable_set(:@program_name, program_name)
-      sub.instance_variable_set(:@location, source_location_of(block))
+      sub = (@namespaces[name.to_s] ||= begin
+        ns = Class.new(Hammer)
+        # Track the top-level CLI class so cross-invocation
+        # (`hammer 'ns:cmd'`) from inside a namespaced command dispatches
+        # against the full tree, not just the current namespace.
+        ns.instance_variable_set(:@root, root)
+        # Parent link, so `before` hooks defined further up the namespace
+        # tree can be collected and run outer -> inner before a command.
+        ns.instance_variable_set(:@parent, self)
+        # Share the parent's resolved program_name so help banners show
+        # "myapp ns:cmd" with the same prefix everywhere - and so the value
+        # captured pre-chdir (see `Hammer.cli`) survives into nested classes.
+        ns.instance_variable_set(:@program_name, program_name)
+        ns.instance_variable_set(:@location, source_location_of(block))
+        ns
+      end)
+
       Hammer.with_target(sub) { sub.class_eval(&block) } if block
-
-      if (prev = @namespaces[name.to_s])
-        sub.instance_variable_set(:@prev_location, prev.instance_variable_get(:@location))
-        warn_redefinition('namespace', name.to_s, prev.instance_variable_get(:@location), sub.instance_variable_get(:@location))
-      end
-
-      @namespaces[name.to_s] = sub
     end
 
     # Register a hook to run before every command in this class (root or
@@ -252,7 +257,23 @@ class Hammer
     # built-in C-defined procs, eval'd blocks).
     def source_location_of(block)
       loc = block&.source_location
-      loc ? "#{loc[0]}:#{loc[1]}" : '(unknown)'
+      loc ? "#{relativize_path(loc[0])}:#{loc[1]}" : '(unknown)'
+    end
+
+    # Trim the cwd prefix off an absolute path so redefinition warnings
+    # read as `./lib/tasks/foo.rb` instead of a long absolute path. Paths
+    # outside cwd (framework / gem files) are left absolute.
+    def relativize_path(path)
+      prefix = "#{Dir.pwd}/"
+      path.start_with?(prefix) ? ".#{path[Dir.pwd.length..]}" : path
+    end
+
+    # True when a captured location lives inside the main app. relativize_path
+    # rewrites in-app absolute paths to a `.`-relative form, so anything still
+    # starting with "/" is an absolute path outside cwd - a framework, plugin,
+    # or gem file. Relative locations are already cwd-anchored, hence local.
+    def app_local_location?(loc)
+      !loc.to_s.start_with?('/')
     end
 
     # Emit a yellow [hammer] warning on stderr when a task/namespace is
@@ -735,7 +756,7 @@ class Hammer
 
     def print_footer
       Shell.say ''
-      Shell.say "powered by hammer - #{HOMEPAGE}", :gray
+      Shell.say "powered by hammer (v#{VERSION}) - #{HOMEPAGE}", :gray
     end
 
     # Hammerfile cheat-sheet shown under `hammer --help`. Same content

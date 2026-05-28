@@ -58,6 +58,22 @@ class RedefineTest < Minitest::Test
     refute_equal cmd.location, cmd.prev_location
   end
 
+  def test_no_warning_when_overriding_task_from_outside_app
+    cli = Class.new(Hammer)
+    # Simulate a task that came from outside the app (an absolute path not
+    # under cwd), e.g. a framework default loaded before the app's tasks.
+    external = Hammer::Command.new(name: 'foo')
+    external.location = '/opt/framework/cli/foo_hammer.rb:1'
+    cli.commands['foo'] = external
+
+    _out, err = capture do
+      cli.task(:foo) { desc 'app override'; proc {} }
+    end
+    refute_includes err, 'redefined'
+    # Silent override still replaces and is not tagged `(redefined)` in help.
+    assert_nil cli.commands['foo'].prev_location
+  end
+
   def test_no_warning_when_unique
     _out, err = capture do
       Class.new(Hammer) do
@@ -90,38 +106,90 @@ class RedefineTest < Minitest::Test
 
   # ----- namespace ----------------------------------------------------
 
-  def test_namespace_redefinition_warns
+  def test_namespace_reopen_merges_without_warning
+    cli = nil
     _out, err = capture do
-      Class.new(Hammer) do
+      cli = Class.new(Hammer) do
         namespace :db do
-          desc 'migrate v1'
-          task(:migrate) { proc {} }
+          task(:migrate) { desc 'migrate'; proc {} }
         end
         namespace :db do
-          desc 'migrate v2'
-          task(:migrate) { proc {} }
+          task(:seed) { desc 'seed'; proc {} }
         end
       end
     end
-    assert_includes err, '[hammer] redefined namespace :db'
+    refute_includes err, 'redefined namespace'
+    # Both tasks live on the one merged namespace subclass.
+    assert_equal %w[migrate seed], cli.namespaces['db'].commands.keys.sort
   end
 
-  def test_namespace_redefinition_last_wins
+  def test_namespace_reopen_runs_tasks_from_both_blocks
     log = []
     cli = nil
     capture do
       cli = Class.new(Hammer) do
         namespace :db do
-          desc 'migrate v1'
-          task(:migrate) { proc { log << :v1 } }
+          task(:migrate) { desc 'migrate'; proc { log << :migrate } }
         end
         namespace :db do
-          desc 'migrate v2'
-          task(:migrate) { proc { log << :v2 } }
+          task(:seed) { desc 'seed'; proc { log << :seed } }
+        end
+      end
+    end
+    capture { cli.start(%w[db:migrate]) }
+    capture { cli.start(%w[db:seed]) }
+    assert_equal %i[migrate seed], log
+  end
+
+  def test_namespace_reopen_with_duplicate_task_warns_on_task
+    _out, err = capture do
+      Class.new(Hammer) do
+        namespace :db do
+          task(:migrate) { desc 'v1'; proc {} }
+        end
+        namespace :db do
+          task(:migrate) { desc 'v2'; proc {} }
+        end
+      end
+    end
+    assert_includes err, '[hammer] redefined task :migrate'
+    refute_includes err, 'redefined namespace'
+  end
+
+  def test_namespace_reopen_duplicate_task_last_wins
+    log = []
+    cli = nil
+    capture do
+      cli = Class.new(Hammer) do
+        namespace :db do
+          task(:migrate) { desc 'v1'; proc { log << :v1 } }
+        end
+        namespace :db do
+          task(:migrate) { desc 'v2'; proc { log << :v2 } }
         end
       end
     end
     capture { cli.start(%w[db:migrate]) }
     assert_equal [:v2], log
+  end
+
+  def test_nested_namespace_reopen_merges
+    cli = nil
+    _out, err = capture do
+      cli = Class.new(Hammer) do
+        namespace :db do
+          namespace :users do
+            task(:list) { desc 'list'; proc {} }
+          end
+        end
+        namespace :db do
+          namespace :users do
+            task(:add) { desc 'add'; proc {} }
+          end
+        end
+      end
+    end
+    refute_includes err, 'redefined namespace'
+    assert_equal %w[add list], cli.namespaces['db'].namespaces['users'].commands.keys.sort
   end
 end
